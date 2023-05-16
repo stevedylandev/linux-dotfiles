@@ -1,0 +1,86 @@
+ls 
+ls -a
+cd .config
+ls
+lvim .zsh_sessions
+clear
+ls
+mkdir zsh
+ls
+cd zsh
+cd 
+ls
+clear
+ls -a
+mv .zshrc ~/.config/zsh/.zshrc
+ls -a
+lvim .zprofile
+clear
+cd ./config/zsh
+cd .config/zsh
+ls
+ls -a
+lvim .zshrc
+cd ~
+git clone https://github.com/ChristianChiarulli/Machfiles/tree/master/zsh/.config/zsh
+git clone https://github.com/ChristianChiarulli/Machfiles
+exit
+cd '/Users/stevedsimkins'
+/Users/stevedsimkins/go-ipfs/ipfs ; exit;
+/Users/stevedsimkins/go-ipfs/ipfs ; exit;
+cd Desktop
+ruby play-wordle.rb
+/Users/stevedsimkins/Developer/hello_world_rust/src/main ; exit;
+/Users/stevedsimkins/cardano-src/cardano-wallet-v2022-01-18-macos64/libffi.7.dylib ; exit;
+/Users/stevedsimkins/cardano-src/cardano-wallet-v2022-01-18-macos64/libgmp.10.dylib ; exit;
+/Users/stevedsimkins/cardano-src/cardano-wallet-v2022-01-18-macos64/libiconv.dylib ; exit;
+/Users/stevedsimkins/cardano-src/cardano-wallet-v2022-01-18-macos64/libsodium.23.dylib ; exit;
+/Users/stevedsimkins/cardano-src/cardano-wallet-v2022-01-18-macos64/libz.dylib ; exit;
+/Users/stevedsimkins/cardano-src/cardano-wallet-v2022-01-18-macos64/libc++.1.0.dylib ; exit;
+/Users/stevedsimkins/cardano-src/cardano-wallet-v2022-01-18-macos64/libc++abi.dylib ; exit;
+cd '/Users/stevedsimkins'
+vi /Users/stevedsimkins/Developer/solana-core/solana-intro-frontend/components/AddressForm.tsx
+clear
+nvim
+vim 
+clear
+clear
+cd Desktop
+ls
+ls
+ipfs add bear.svg
+ipfs rm 
+ipfs remove
+ipfs --help
+clear
+ipfs pin 
+ipfs pin rm QmbZ5WtGdocLUsMC1ftxR3f1kr4fXNsxN5YKk7eVZCtiQc
+brew 
+clear
+clear
+cd Downloads
+cd ..
+cd Downloads
+cd Resources
+cd ..
+cd ..
+clear
+c
+clear
+ls
+cd Pictures
+ls
+cd Pinata\ Assets
+ls
+clear
+cd ~
+clear
+ls
+cmatrix
+cmatrix --help
+cmatrix -C blue
+clear
+ipfs
+clear
+clear
+ipfs daemon

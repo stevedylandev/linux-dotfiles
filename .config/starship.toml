@@ -1,0 +1,165 @@
+# format = """
+# [](#434C5E)\
+# $username\
+# [](bg:#4C566A fg:#434C5E)\
+# $directory\
+# [](fg:#4C566A bg:#5E81AC)\
+# $git_branch\
+# $git_status\
+# [](fg:#5E81AC bg:#2E3440)\
+# $character
+# """
+# format = """
+# $username\
+# [](white)\
+# $directory\
+# [](white)\
+# $character\
+# $git_branch\
+# $git_status\
+# """
+
+format = """ 
+$character\
+$directory\
+$git_branch\
+$git_status\
+"""
+
+
+# Disable the blank line at the start of the prompt
+# add_newline = false
+
+# You can also replace your username with a neat symbol like  to save some space
+[username]
+show_always = true
+style_user = "white bold"
+style_root = "white bold"
+format = '[$user ]($style)'
+
+[character]
+success_symbol = " [](bold white)"
+error_symbol = " [](bold red)"
+
+[directory]
+format = "[ $path/ ]($style)"
+style = "white"
+truncation_length = 1
+truncation_symbol = ""
+
+# Here is how you can shorten some long paths by text replacement
+# similar to mapped_locations in Oh My Posh:
+[directory.substitutions]
+"Documents" = " "
+"Downloads" = " "
+"Music" = " "
+"Pictures" = " "
+# Keep in mind that the order matters. For example:
+# "Important Documents" = "  "
+# will not be replaced, because "Documents" was already substituted before.
+# So either put "Important Documents" before "Documents" or use the substituted version:
+# "Important  " = "  "
+
+[c]
+symbol = " "
+style = "bg:#D08770"
+format = '[ $symbol ($version) ]($style)'
+
+[docker_context]
+symbol = " "
+style = "bg:#EBCB8B"
+format = '[ $symbol $context ]($style) $path'
+
+[elixir]
+symbol = " "
+style = "bg:#D08770"
+format = '[ $symbol ($version) ]($style)'
+
+[elm]
+symbol = " "
+style = "bg:#D08770"
+format = '[ $symbol ($version) ]($style)'
+
+[git_branch]
+symbol = ""
+format = '[$symbol $branch]($style)'
+
+[git_status]
+format = ' [$all_status$ahead_behind]($style) '
+
+[golang]
+symbol = " "
+style = "bg:#D08770"
+format = '[ $symbol ($version) ]($style)'
+
+[haskell]
+symbol = " "
+style = "bg:#D08770"
+format = '[ $symbol ($version) ]($style)'
+
+[java]
+symbol = " "
+style = "bg:#D08770"
+format = '[ $symbol ($version) ]($style)'
+
+[julia]
+symbol = " "
+style = "bg:#D08770"
+format = '[ $symbol ($version) ]($style)'
+
+[nodejs]
+symbol = ""
+style = "bg:#D08770"
+format = '[ $symbol ($version) ]($style)'
+disabled = true
+
+[nim]
+symbol = " "
+style = "bg:#D08770"
+format = '[ $symbol ($version) ]($style)'
+
+[rust]
+symbol = ""
+style = "bg:#D08770"
+format = '[ $symbol ($version) ]($style)'
+
+[scala]
+symbol = " "
+style = "bg:#D08770"
+format = '[ $symbol ($version) ]($style)'
+
+[time]
+disabled = true
+time_format = "%R" # Hour:Minute Format
+style = "bg:#B48EAD"
+format = '[ 🌊 $time ]($style)'
+
+# [palettes.catppuccin_mocha]
+# rosewater = "#f5e0dc"
+# flamingo = "#f2cdcd"
+# pink = "#f5c2e7"
+# mauve = "#cba6f7"
+# red = "#f38ba8"
+# maroon = "#eba0ac"
+# peach = "#fab387"
+# yellow = "#f9e2af"
+# green = "#a6e3a1"
+# teal = "#94e2d5"
+# sky = "#89dceb"
+# sapphire = "#74c7ec"
+# blue = "#89b4fa"
+# lavender = "#b4befe"
+# text = "#cdd6f4"
+# subtext1 = "#bac2de"
+# subtext0 = "#a6adc8"
+# overlay2 = "#9399b2"
+# overlay1 = "#7f849c"
+# overlay0 = "#6c7086"
+# surface2 = "#585b70"
+# surface1 = "#45475a"
+# surface0 = "#313244"
+# base = "#1e1e2e"
+# mantle = "#181825"
+# crust = "#11111b"
+# 
+# palette = "catppuccin_flavor"
