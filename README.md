@@ -31,3 +31,5 @@ cp -r dotfiles/.config/* ~/.config/
 **Text Editor** - [NeoVim](https://neovim.io)
 
 **Audio Visualizer** - [CAVA](https://github.com/karlstav/cava)
+
+**App Launcher** - [Rofi](https://github.com/davatorium/rofi)
