@@ -15,7 +15,7 @@ git clone https://github.com/stevedylandev/dotfiles
 cp -r dotfiles/.config/* ~/.config/
 ```
 
-3. That's it! You will likely need to reboot your machine for all the config changes to take place. I personally love doing it through the simple ```reboo``` command from the terminal!
+3. That's it! You will likely need to reboot your machine for all the config changes to take place. I personally love doing it through the simple ```reboot``` command from the terminal!
 
 # What I Use
 **Color Scheme** - [Catppuccin](https://github.com/catppuccin/catppuccin)
