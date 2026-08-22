@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Clipboard history (rofi)
+Comment=Records what passes through the clipboard so Super+V can bring it back
+Exec=/home/stevedylandev/dotfiles/rofi/scripts/rofi-clipd
+Icon=edit-paste
+Terminal=false
+StartupNotify=false
+X-GNOME-Autostart-enabled=true

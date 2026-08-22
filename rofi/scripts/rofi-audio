@@ -1,0 +1,108 @@
+#!/bin/sh
+# Requires: rofi, wireplumber (wpctl)
+# Audio menu: volume, mute, and which sink the sound comes out of. This is
+# the rofi replacement for the gum-based audio-menu/audio-output pair, so it
+# no longer needs a terminal window to run in.
+set -u
+
+STEP=${ROFI_AUDIO_STEP:-5}
+NOTIFY_ID=7303
+
+notify() {
+    if command -v dunstify >/dev/null 2>&1; then
+        dunstify -r "$NOTIFY_ID" "Audio" "$1"
+    else
+        notify-send "Audio" "$1"
+    fi
+}
+
+# wpctl has no machine-readable listing, so carve the Sinks block out of
+# `status`. Output: "<*|space>\t<id>\t<name>".
+sinks() {
+    wpctl status 2>/dev/null | awk '
+        /^Audio/                                { audio = 1; next }
+        /^[A-Z]/                                { audio = 0 }
+        audio && /Sinks:/ && !/endpoints:/      { insec = 1; next }
+        audio && /Devices:|Sources:|Streams:|endpoints:|Filters:/ { insec = 0; next }
+        insec {
+            line = $0
+            prefix = line; sub(/[0-9].*$/, "", prefix)
+            def = (prefix ~ /\*/) ? "*" : " "
+            sub(/^[^0-9]*/, "", line)
+            if (line !~ /^[0-9]+\./) next
+            id = line;   sub(/\..*$/, "", id)
+            name = line; sub(/^[0-9]+\.[[:space:]]*/, "", name)
+            sub(/[[:space:]]*\[vol:.*$/, "", name)
+            sub(/[[:space:]]+$/, "", name)
+            print def "\t" id "\t" name
+        }
+    '
+}
+
+# @DEFAULT_AUDIO_SINK@ always resolves to whatever is current, so the volume
+# actions never need to know which sink that is.
+volume() { wpctl get-volume @DEFAULT_AUDIO_SINK@ 2>/dev/null; }
+
+vol_percent() { volume | awk '{ printf "%d", $2 * 100 }'; }
+
+# The icon tracks the level the same way the status bar blocks do, so a
+# notification reads the same whether it came from here or from a media key.
+vol_icon() {
+    case "$(volume)" in
+        *MUTED*) printf '󰝟' ;;
+        *) v=$(vol_percent)
+           if   [ "$v" -eq 0 ];  then printf '󰕿'
+           elif [ "$v" -lt 34 ]; then printf '󰖀'
+           elif [ "$v" -lt 67 ]; then printf '󰕾'
+           else                       printf '󰕾'
+           fi ;;
+    esac
+}
+
+report() { notify "$(vol_icon)  $(vol_percent)%"; }
+
+SINKS=$(sinks)
+[ -n "$SINKS" ] || { notify "No sinks found — is pipewire running?"; exit 1; }
+
+CURRENT=$(printf '%s\n' "$SINKS" | awk -F'\t' '$1 == "*" { print $3; exit }')
+MIC=$(wpctl get-volume @DEFAULT_AUDIO_SOURCE@ 2>/dev/null | grep -q MUTED && echo "muted" || echo "live")
+
+ACTIONS=$(printf '󰝝  volume up (+%s%%)\n󰝞  volume down (-%s%%)\n󰝟  toggle mute\n󰍬  toggle mic (currently %s)\n󰓃  automatic output\n' "$STEP" "$STEP" "$MIC")
+
+# Sinks are listed by name with their wpctl id hidden behind two spaces, the
+# same split the actions use, so one case statement handles both.
+SINKLIST=$(printf '%s\n' "$SINKS" | awk -F'\t' '{
+    icon = ($1 == "*") ? "󰄬" : "󰓃"
+    printf "%s  %s\t%s\n", icon, $3, $2
+}')
+
+CHOICE=$(printf '%s\n%s\n' "$ACTIONS" "$(printf '%s\n' "$SINKLIST" | cut -f1)" |
+    rofi -dmenu -i -no-custom -l 10 -p "audio" \
+        -mesg "$(vol_icon)  $(vol_percent)% — ${CURRENT:-no default sink}") || exit 0
+[ -n "$CHOICE" ] || exit 0
+
+case "$CHOICE" in
+    *"volume up"*)
+        # The cap keeps a stray keystroke from pushing the sink into the
+        # clipping range above 100%.
+        wpctl set-volume -l 1.0 @DEFAULT_AUDIO_SINK@ "$STEP%+"
+        report ;;
+    *"volume down"*)
+        wpctl set-volume @DEFAULT_AUDIO_SINK@ "$STEP%-"
+        report ;;
+    *"toggle mute"*)
+        wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle
+        report ;;
+    *"toggle mic"*)
+        wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle
+        wpctl get-volume @DEFAULT_AUDIO_SOURCE@ | grep -q MUTED &&
+            notify "󰍭  microphone muted" || notify "󰍬  microphone live" ;;
+    *"automatic output"*)
+        wpctl clear-default
+        notify "󰓃  output: automatic (wireplumber picks)" ;;
+    *)
+        ID=$(printf '%s\n' "$SINKLIST" | awk -F'\t' -v c="$CHOICE" '$1 == c { print $2; exit }')
+        [ -n "$ID" ] || exit 0
+        wpctl set-default "$ID"
+        notify "󰓃  output: ${CHOICE##*  }" ;;
+esac

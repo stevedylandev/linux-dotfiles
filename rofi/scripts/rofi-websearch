@@ -1,0 +1,79 @@
+#!/bin/sh
+# Requires: rofi, a browser
+# Web search: pick an engine, type a query, land in the browser. Typing a
+# query straight into the engine list also works — anything that is not one
+# of the listed engines is treated as a query for the first one.
+# Add engines by adding lines to ENGINES: "<icon>  <name>\t<url with %s>".
+set -u
+
+BROWSER_CMD=${BROWSER:-}
+if [ -z "$BROWSER_CMD" ]; then
+    for candidate in helium.AppImage chromium firefox qutebrowser xdg-open; do
+        if command -v "$candidate" >/dev/null 2>&1; then
+            BROWSER_CMD=$candidate
+            break
+        fi
+    done
+fi
+[ -n "$BROWSER_CMD" ] || { notify-send "Web search" "No browser found"; exit 1; }
+
+# The AppImage refuses to start under this user without it, the same way the
+# Mod+O keybinding launches it.
+BROWSER_ARGS=""
+case "$BROWSER_CMD" in
+    *helium*) BROWSER_ARGS="--no-sandbox" ;;
+esac
+
+ENGINES=$(printf '%s\n' \
+    "󰖟  duckduckgo	https://duckduckgo.com/?q=%s" \
+    "󰊤  github	https://github.com/search?q=%s" \
+    "󰛦  npm	https://www.npmjs.com/search?q=%s" \
+    "󱘗  crates.io	https://crates.io/search?q=%s" \
+    "󰅴  mdn	https://developer.mozilla.org/en-US/search?q=%s" \
+    "󱆃  alpine packages	https://pkgs.alpinelinux.org/packages?name=%s" \
+    "󰖬  wikipedia	https://en.wikipedia.org/w/index.php?search=%s" \
+    "󰗃  youtube	https://www.youtube.com/results?search_query=%s" \
+    "󰅩  stack overflow	https://stackoverflow.com/search?q=%s")
+
+# Percent-encode by byte, so a query with an accent or an emoji survives the
+# trip. od gives the bytes; awk decides which ones may travel as themselves.
+urlencode() {
+    printf '%s' "$1" | od -An -tx1 -v | tr -s ' ' '\n' | awk '
+        function h2d(h,   i, c, d) {
+            d = 0
+            for (i = 1; i <= length(h); i++) {
+                c = index("0123456789abcdef", substr(tolower(h), i, 1)) - 1
+                d = d * 16 + c
+            }
+            return d
+        }
+        NF {
+            d = h2d($1)
+            ch = sprintf("%c", d)
+            if (ch ~ /^[A-Za-z0-9._~-]$/) printf "%s", ch
+            else printf "%%%s", toupper($1)
+        }
+    '
+}
+
+CHOICE=$(printf '%s\n' "$ENGINES" | cut -f1 | rofi -dmenu -i -l 9 -p "search") || exit 0
+[ -n "$CHOICE" ] || exit 0
+
+# rofi hands back whatever was typed when nothing matched: that is a query
+# for the default engine, not an engine name.
+URL=$(printf '%s\n' "$ENGINES" | awk -F'\t' -v c="$CHOICE" '$1 == c { print $2; exit }')
+if [ -n "$URL" ]; then
+    QUERY=$(rofi -dmenu -p "${CHOICE##*  }" -l 0 </dev/null) || exit 0
+else
+    QUERY=$CHOICE
+    URL=$(printf '%s\n' "$ENGINES" | awk -F'\t' 'NR == 1 { print $2; exit }')
+fi
+[ -n "$QUERY" ] || exit 0
+
+# A pasted or typed URL is a destination, not something to search for.
+case "$QUERY" in
+    http://*|https://*) TARGET=$QUERY ;;
+    *) TARGET=$(printf "$URL" "$(urlencode "$QUERY")") ;;
+esac
+
+exec "$BROWSER_CMD" ${BROWSER_ARGS:+$BROWSER_ARGS} "$TARGET"

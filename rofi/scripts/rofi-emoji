@@ -1,0 +1,41 @@
+#!/bin/sh
+# Requires: rofi, xclip, a color emoji font (Noto Color Emoji)
+# Emoji and kaomoji picker: search by name, Enter copies the character to the
+# clipboard. There is no paste-into-the-window step because that needs xdotool
+# to fake a keystroke, which is not installed — copy and paste normally.
+# Picks are remembered and float to the top, so the handful anyone actually
+# uses stop needing to be searched for.
+set -u
+
+DATA=${ROFI_EMOJI_DATA:-$(dirname "$0")/../emoji.txt}
+RECENT="${XDG_CACHE_HOME:-$HOME/.cache}/rofi-emoji-recent"
+RECENT_MAX=${ROFI_EMOJI_RECENT_MAX:-30}
+
+[ -f "$DATA" ] || { echo "rofi-emoji: no emoji data at $DATA" >&2; exit 1; }
+touch "$RECENT"
+
+# Two spaces between the character and its name: a kaomoji can contain single
+# spaces, so a single space would be ambiguous when splitting the choice back
+# apart. Names stay in the row because that is what the search filters on.
+rows() {
+    cat "$RECENT" "$DATA" | awk -F'\t' '!seen[$1]++ { printf "%s  %s\n", $1, $2 }'
+}
+
+CHOICE=$(rows | rofi -dmenu -i -no-custom -p "emoji" -matching normal) || exit 0
+[ -n "$CHOICE" ] || exit 0
+
+CHAR=${CHOICE%%  *}
+NAME=${CHOICE#*  }
+
+printf '%s' "$CHAR" | xclip -selection clipboard -i
+
+# Rewrite the recents file with this pick first and its older copy dropped.
+tmp="$RECENT.$$"
+printf '%s\t%s\n' "$CHAR" "$NAME" > "$tmp"
+grep -Fxv "$(printf '%s\t%s' "$CHAR" "$NAME")" "$RECENT" >> "$tmp" 2>/dev/null
+head -n "$RECENT_MAX" "$tmp" > "$RECENT"
+rm -f "$tmp"
+
+command -v dunstify >/dev/null 2>&1 &&
+    dunstify -r 7302 "Copied $CHAR" "$NAME" ||
+    notify-send "Copied $CHAR" "$NAME"

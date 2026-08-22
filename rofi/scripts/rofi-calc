@@ -1,0 +1,82 @@
+#!/bin/sh
+# Requires: rofi, bc, xclip
+# Calculator. The rofi-calc plugin wants libqalculate; this needs nothing but
+# bc, at the cost of results arriving on Enter rather than as you type:
+#   type an expression, Enter   evaluate it (the result becomes a row)
+#   Enter on a result row       copy it to the clipboard
+# Past results stay listed until cleared, so earlier answers can be copied or
+# pasted back into a new expression.
+set -u
+
+HIST="${XDG_CACHE_HOME:-$HOME/.cache}/rofi-calc-history"
+HIST_MAX=${ROFI_CALC_HISTORY_MAX:-50}
+SCALE=${ROFI_CALC_SCALE:-10}
+
+if [ -z "${ROFI_RETV:-}" ]; then
+    exec rofi -show calc -modes "calc:$0"
+fi
+
+US=$(printf '\037')
+touch "$HIST"
+
+list() {
+    printf '\0prompt%scalc\n' "$US"
+    printf '\0message%sType an expression and press Enter. + - * / ^%%, sqrt(), s()/c()/a() trig, l()/e() log.\n' "$US"
+    printf '\0keep-selection%strue\n' "$US"
+    while IFS='	' read -r expr result; do
+        [ -n "$result" ] || continue
+        printf '%s = %s\0info%s%s\n' "$expr" "$result" "$US" "$result"
+    done < "$HIST"
+    [ -s "$HIST" ] && printf 'clear history\0info%s@clear\n' "$US"
+    return 0
+}
+
+evaluate() {
+    # -l pulls in the math library (sqrt, s, c, a, l, e) and sets scale=20,
+    # so scale has to be set after it to control the printed precision.
+    result=$(printf 'scale=%s\n%s\n' "$SCALE" "$1" | bc -l 2>/dev/null | tail -n1)
+    [ -n "$result" ] || return 1
+
+    # bc pads to the full scale (2/1 = .5000000000) and leads with a bare dot;
+    # trim both so results look like results.
+    result=$(printf '%s' "$result" | sed -e 's/\([.][0-9]*[1-9]\)0*$/\1/' -e 's/[.]0*$//' -e 's/^\([-]\{0,1\}\)[.]/\10./')
+    printf '%s' "$result"
+}
+
+case "$ROFI_RETV" in
+    0) list ;;
+    1)
+        info=${ROFI_INFO:-}
+        if [ "$info" = "@clear" ]; then
+            : > "$HIST"
+            list
+        elif [ -n "$info" ]; then
+            # Redirect: xclip backgrounds itself still holding the pipe rofi
+            # reads this script on, and rofi hangs with the keyboard grabbed
+            # until it sees EOF there.
+            printf '%s' "$info" | xclip -selection clipboard -i >/dev/null 2>&1
+        fi
+        ;;
+    2)
+        expr=${1:-}
+        [ -n "$expr" ] || { list; exit 0; }
+        if result=$(evaluate "$expr") && [ -n "$result" ]; then
+            tmp="$HIST.$$"
+            printf '%s\t%s\n' "$expr" "$result" > "$tmp"
+            grep -v "^$(printf '%s' "$expr" | sed 's/[][\.*^$/]/\\&/g')	" "$HIST" >> "$tmp" 2>/dev/null
+            head -n "$HIST_MAX" "$tmp" > "$HIST"
+            rm -f "$tmp"
+        else
+            printf '\0message%s<span foreground="#bf616a">Not a valid expression</span>\n' "$US"
+        fi
+        list
+        ;;
+    3)
+        expr=$(printf '%s' "${1:-}" | sed 's/ = .*$//')
+        if [ -n "$expr" ]; then
+            grep -v "^$(printf '%s' "$expr" | sed 's/[][\.*^$/]/\\&/g')	" "$HIST" > "$HIST.$$" 2>/dev/null
+            mv "$HIST.$$" "$HIST"
+        fi
+        list
+        ;;
+esac

@@ -1,0 +1,214 @@
+#!/bin/sh
+# Requires: rofi, libnotify, iw, wpa_supplicant, udhcpc, openrc, doas
+# WiFi menu: scan, connect, disconnect. This is the rofi rewrite of the old
+# dm-wifi-connect, with two changes worth knowing about — the passphrase goes
+# through `rofi -password` instead of the black-on-black dmenu trick, and a
+# new network is merged into wpa_supplicant.conf beside the ones already
+# there rather than replacing them, so the machine can still roam back to a
+# network it has seen before.
+#
+# Prompting runs as the calling user so rofi keeps the X session and
+# notifications keep the user's bus; only scanning, the config write and the
+# bring-up are handed to doas.
+set -u
+
+CONF=/etc/wpa_supplicant/wpa_supplicant.conf
+NOTIFY_ID=7301
+
+menu() { rofi -dmenu -i "$@"; }
+
+notify() {
+    # dunstify can replace an earlier notification in place, so the progress
+    # line becomes the result line instead of stacking up.
+    if command -v dunstify >/dev/null 2>&1; then
+        dunstify -r "$NOTIFY_ID" ${2:+-u "$2"} "WiFi" "$1"
+    else
+        notify-send ${2:+-u "$2"} "WiFi" "$1"
+    fi
+}
+
+fail() { notify "$1" critical; exit 1; }
+
+# doas asks for a passphrase on a tty, and launched from a keybinding there
+# is none — fail with something readable instead of hanging invisibly.
+doas -n true 2>/dev/null || fail "doas needs a password; add a nopass rule for this user."
+
+# Ask the kernel which interfaces are wireless rather than assuming wlan0.
+IFACES=$(iw dev | awk '$1 == "Interface" { print $2 }')
+case $(printf '%s' "$IFACES" | grep -c .) in
+    0) fail "No wireless interfaces found." ;;
+    1) IFACE=$IFACES ;;
+    *) IFACE=$(printf '%s\n' "$IFACES" | menu -l 5 -p "interface") ;;
+esac
+[ -n "$IFACE" ] || exit 1
+
+link_ssid() { iw dev "$IFACE" link 2>/dev/null | sed -n 's/^[[:space:]]*SSID: //p'; }
+ipv4() { ip -4 addr show "$IFACE" 2>/dev/null | awk '/inet /{ print $2; exit }'; }
+
+saved_ssids() { doas -n grep -o 'ssid="[^"]*"' "$CONF" 2>/dev/null | sed 's/^ssid="//; s/"$//'; }
+
+disconnect() {
+    notify "󰤬  Disabling $IFACE..."
+    doas sh -c '
+        # wpa_supplicant runs under supervise-daemon, which respawns the
+        # daemon a couple of seconds after any kill. Stopping the service is
+        # what takes the supervisor down with it; pkill only kills the child.
+        rc-service -s -q wpa_supplicant stop
+        ifdown "$1" 2>/dev/null
+
+        PIDFILE=/var/run/udhcpc.$1.pid
+        if [ -f "$PIDFILE" ]; then
+            kill "$(cat "$PIDFILE")" 2>/dev/null
+            rm -f "$PIDFILE"
+        fi
+
+        ip addr flush dev "$1" 2>/dev/null
+        ip link set "$1" down
+    ' _ "$IFACE"
+    notify "󰤭  $IFACE disabled"
+    exit 0
+}
+
+bring_up() {
+    ssid=$1
+    notify "󰤨  Connecting to $ssid..."
+    doas sh -c '
+        # wpa_supplicant will not reread its config on its own, so restart it
+        # rather than signalling it. This also covers the case where the link
+        # was disabled outright. ifup is no help: wlan0 has no stanza in
+        # /etc/network/interfaces.
+        rc-service wpa_supplicant restart >/dev/null 2>&1
+
+        # Give the supplicant time to associate before asking for a lease — a
+        # DHCP request sent before association just burns its whole timeout.
+        i=0
+        while [ "$i" -lt 20 ]; do
+            iw dev "$1" link 2>/dev/null | grep -q "^Connected to" && break
+            sleep 1
+            i=$((i + 1))
+        done
+
+        # Replace any DHCP client left over from a previous connect; without
+        # this they stack up, one per run, all renewing the same lease.
+        PIDFILE=/var/run/udhcpc.$1.pid
+        if [ -f "$PIDFILE" ]; then
+            kill "$(cat "$PIDFILE")" 2>/dev/null
+            rm -f "$PIDFILE"
+        fi
+        ip addr flush dev "$1" 2>/dev/null
+
+        # Same invocation ifupdown-ng uses for a dhcp stanza. udhcpc
+        # daemonises once it has the lease, so this returns with the address
+        # already set.
+        udhcpc -b -R -p "$PIDFILE" -i "$1" -x "hostname:$(hostname)" >/dev/null 2>&1
+    ' _ "$IFACE"
+
+    if [ -n "$(ipv4)" ]; then
+        notify "󰤨  $ssid on $IFACE — $(ipv4)"
+    else
+        fail "󰤮  Failed to connect to $ssid"
+    fi
+    exit 0
+}
+
+connect() {
+    ssid=$1
+
+    # A network already in the config has a working passphrase on file; only
+    # ask again if there is nothing saved for it.
+    if saved_ssids | grep -Fxq "$ssid"; then
+        bring_up "$ssid"
+    fi
+
+    pass=$(rofi -dmenu -password -p "password for $ssid" -mesg "Leave empty for an open network" -l 0 </dev/null) || exit 0
+
+    # Build the new stanza before touching anything: a rejected passphrase
+    # must not disturb the config that is currently working. The PSK never
+    # lands on disk unprivileged — it goes to the root shell over a pipe.
+    if [ -z "$pass" ]; then
+        NEW=$(printf 'network={\n\tssid="%s"\n\tkey_mgmt=NONE\n}\n' "$ssid")
+    else
+        NEW=$(wpa_passphrase "$ssid" "$pass" 2>/dev/null | grep -v '^[[:space:]]*#psk=') ||
+            fail "Rejected by wpa_passphrase — password must be 8-63 characters."
+    fi
+    [ -n "$NEW" ] || fail "Could not generate a config for $ssid."
+
+    # Merge: keep the global settings and every other network block, drop
+    # any earlier block for this SSID, then append the new one. awk does the
+    # dropping because a network={...} block spans lines; its program travels
+    # as an argument so it needs no escaping inside the root shell.
+    DROP_BLOCK='
+        /^[[:space:]]*network[[:space:]]*=[[:space:]]*\{/ {
+            block = $0 ORS; inblock = 1; matched = 0; next
+        }
+        inblock {
+            block = block $0 ORS
+            if (index($0, "ssid=\"" ssid "\"")) matched = 1
+            if ($0 ~ /^[[:space:]]*\}/) {
+                if (!matched) printf "%s", block
+                inblock = 0
+            }
+            next
+        }
+        { print }
+    '
+
+    printf '%s\n' "$NEW" | doas sh -c '
+        CONF=$1; SSID=$2; PROG=$3
+        NEW=$(cat)
+        [ -f "$CONF" ] && cp "$CONF" "$CONF.bak"
+        {
+            [ -f "$CONF.bak" ] && awk -v ssid="$SSID" "$PROG" "$CONF.bak"
+            printf "%s\n" "$NEW"
+        } > "$CONF"
+        chmod 600 "$CONF"
+    ' _ "$CONF" "$ssid" "$DROP_BLOCK" || fail "Could not write $CONF."
+
+    bring_up "$ssid"
+}
+
+# --- menu -------------------------------------------------------------------
+
+CURRENT=$(link_ssid)
+IP=$(ipv4)
+if [ -n "$CURRENT" ]; then
+    STATUS="󰤨  connected to $CURRENT${IP:+ — $IP}"
+else
+    STATUS="󰤭  not connected on $IFACE"
+fi
+
+doas ip link set "$IFACE" up 2>/dev/null
+notify "󰤬  Scanning for networks on $IFACE..."
+
+# `scan dump` reuses cached results if the card is busy (already associated),
+# which is when a live scan tends to fail.
+SCAN=$(doas iw dev "$IFACE" scan 2>/dev/null || doas iw dev "$IFACE" scan dump 2>/dev/null)
+
+# Only real SSID lines: bare "SSID: " is a hidden network, and "SSID List"
+# under extended capabilities is not a network at all.
+SSIDS=$(printf '%s\n' "$SCAN" | sed -n 's/^[[:space:]]*SSID: \(..*\)$/\1/p' | sort -u)
+
+SAVED=$(saved_ssids)
+LIST=$(printf '%s\n' "$SSIDS" | awk -v cur="$CURRENT" -v saved="$SAVED" '
+    BEGIN { n = split(saved, s, "\n"); for (i = 1; i <= n; i++) known[s[i]] = 1 }
+    NF {
+        # 󰤪 marks a network this machine already has credentials for, 󰄬 the
+        # one it is on right now.
+        icon = ($0 == cur) ? "󰄬" : (known[$0] ? "󰤪" : "󰤟")
+        printf "%s  %s\n", icon, $0
+    }')
+
+ACTIONS="󰑐  rescan
+󰛳  hidden network"
+[ -n "$CURRENT" ] && ACTIONS="$ACTIONS
+󰤮  disconnect"
+
+CHOICE=$(printf '%s\n%s\n' "$LIST" "$ACTIONS" | grep -v '^$' | menu -l 12 -p "wifi" -mesg "$STATUS") || exit 0
+[ -n "$CHOICE" ] || exit 0
+
+case ${CHOICE##*  } in
+    rescan)           exec "$0" ;;
+    disconnect)       disconnect ;;
+    "hidden network") ssid=$(menu -p "ssid" -l 0 </dev/null); [ -n "$ssid" ] && connect "$ssid" ;;
+    *)                connect "${CHOICE##*  }" ;;
+esac

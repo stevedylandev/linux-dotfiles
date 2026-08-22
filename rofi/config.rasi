@@ -1,0 +1,43 @@
+/* rofi settings. The look lives in the theme file; this is behaviour only. */
+configuration {
+    /* Modes reachable with `rofi -show <name>`. drun is the launcher (it
+       reads .desktop files, so entries get icons and their real names), run
+       is bare executables on PATH, window switches to something already
+       open, and combi searches drun + run + window at once. */
+    modes:      "drun,run,window,combi,filebrowser,ssh,keys";
+    combi-modes: "drun,run,window";
+
+    /* Fuzzy matching with sorting: "fx" finds "firefox", and the closest
+       match still comes first. Set matching to "normal" for plain substring
+       search if fuzzy ever feels too loose. */
+    matching:   "fuzzy";
+    sort:       true;
+
+    show-icons: true;
+    icon-theme: "Adwaita";
+
+    /* ssh mode and "run in terminal" open this. wezterm is the XFCE
+       TerminalEmulator helper here, and its `start` subcommand takes -e as
+       an alias, which is the form rofi uses. */
+    terminal:   "wezterm";
+
+    drun-display-format:    "{name} [<span weight='light' size='small'><i>({generic})</i></span>]";
+    drun-match-fields:      "name,generic,exec,categories,keywords";
+    /* Right-click actions from the .desktop file (new window, private
+       window, and so on) become their own entries. */
+    drun-show-actions:      true;
+
+    window-format:          "{w}  {c}  {t}";
+
+    display-drun:        "apps";
+    display-run:         "run";
+    display-window:      "windows";
+    display-combi:       "all";
+    display-filebrowser: "files";
+    display-ssh:         "ssh";
+    display-keys:        "keys";
+    display-clipboard:   "clipboard";
+    display-calc:        "calc";
+}
+
+@theme "nord"

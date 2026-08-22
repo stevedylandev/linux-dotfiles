@@ -1,0 +1,6 @@
+require("options")
+require("keymaps")
+require("autocmds")
+require("plugins")
+require("lsp")
+require("treesitter")

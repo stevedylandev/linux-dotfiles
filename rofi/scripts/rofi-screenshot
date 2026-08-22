@@ -1,0 +1,65 @@
+#!/bin/sh
+# Requires: rofi, maim, xclip, libnotify
+# Screenshot menu. Every shot lands in the clipboard as image/png and, unless
+# it was a clipboard-only pick, on disk as well — the clipboard copy is what
+# gets pasted into a chat, the file is what survives the next copy.
+# Mod+S still takes a plain region shot without going through this menu.
+set -u
+
+DIR=${ROFI_SCREENSHOT_DIR:-$HOME/Pictures/screenshots}
+NOTIFY_ID=7304
+
+mkdir -p "$DIR"
+
+notify() {
+    if command -v dunstify >/dev/null 2>&1; then
+        dunstify -r "$NOTIFY_ID" ${2:+-i "$2"} "Screenshot" "$1"
+    else
+        notify-send "Screenshot" "$1"
+    fi
+}
+
+# -u hides the cursor from the capture; without it the pointer shows up in
+# the middle of whatever was being selected.
+shoot() {
+    file="$DIR/$(date +%Y%m%d-%H%M%S).png"
+
+    # maim writes nothing and exits non-zero when a selection is cancelled
+    # with Escape, so a cancelled shot must not leave an empty file behind.
+    if ! maim -u "$@" "$file" 2>/dev/null || [ ! -s "$file" ]; then
+        rm -f "$file"
+        exit 0
+    fi
+
+    xclip -selection clipboard -t image/png -i "$file"
+
+    if [ "$KEEP" -eq 0 ]; then
+        rm -f "$file"
+        notify "Copied to clipboard"
+    else
+        notify "Copied — saved to ${file#"$HOME"/}" "$file"
+    fi
+}
+
+CHOICE=$(printf '%s\n' \
+    "󰩭  region → clipboard + file" \
+    "󰩭  region → clipboard only" \
+    "󰖯  window → clipboard + file" \
+    "󰍹  full screen → clipboard + file" \
+    "󰔛  full screen after 5s" \
+    "󰉖  open screenshots folder" |
+    rofi -dmenu -i -no-custom -l 6 -p "screenshot" -mesg "Saving to ${DIR#"$HOME"/}") || exit 0
+[ -n "$CHOICE" ] || exit 0
+
+KEEP=1
+case "$CHOICE" in
+    *"region → clipboard only")  KEEP=0; shoot -s ;;
+    *"region"*)                  shoot -s ;;
+    # A huge -t makes maim wait for a click instead of a drag, which selects
+    # the clicked window whole — the substitute for `maim -i $(xdotool
+    # getactivewindow)`, since xdotool is not installed.
+    *"window"*)                  shoot -st 9999999 ;;
+    *"after 5s")                 notify "Shooting in 5s..."; sleep 5; shoot ;;
+    *"full screen"*)             shoot ;;
+    *"folder")                   exec xdg-open "$DIR" ;;
+esac

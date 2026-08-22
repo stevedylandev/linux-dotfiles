@@ -1,0 +1,80 @@
+#!/bin/sh
+# Requires: rofi, and either xfce4-session or elogind (loginctl)
+# Power menu, shared between the XFCE session and oxwm. Under XFCE the
+# session manager owns these actions: it asks open applications to close and
+# saves the session before handing the request on, which is what Ctrl+Alt+Del
+# does. Under oxwm there is no session manager, so elogind is asked directly
+# and doas is the backstop for a session it does not own. Every action asks
+# for confirmation first, defaulting to no — this menu sits a keystroke away
+# from the launcher.
+set -u
+
+# xfce4-session-logout's per-action flags skip its own dialog on their own;
+# --fast is deliberately not passed, because that means "do not save the
+# session" rather than "do not ask".
+session=""
+if [ "${XDG_CURRENT_DESKTOP:-}" = "XFCE" ] && command -v xfce4-session-logout >/dev/null 2>&1; then
+    session=xfce4-session-logout
+fi
+
+# Only the lockers that are actually installed get offered. None of these
+# ship with the system: `doas apk add slock` (or i3lock) to get a lock entry.
+# xflock4 is not a locker itself — it asks xfce4-session to lock, which needs
+# one of these installed all the same — but going through it means the
+# session's own lock settings apply.
+locker=""
+for candidate in slock i3lock xsecurelock physlock xscreensaver light-locker; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+        locker=$candidate
+        break
+    fi
+done
+if [ -n "$locker" ] && [ -n "$session" ] && command -v xflock4 >/dev/null 2>&1; then
+    locker=xflock4
+fi
+
+menu() { rofi -dmenu -i -no-custom "$@"; }
+
+confirm() {
+    answer=$(printf 'no\nyes\n' | menu -p "$1?" -mesg "This will $2." -l 2) || exit 0
+    [ "$answer" = "yes" ]
+}
+
+# The session manager when there is one, then loginctl, then doas.
+#   $1 xfce4-session-logout flag   $2 loginctl verb   $3 doas fallback
+power() {
+    if [ -n "$session" ]; then
+        "$session" "$1"
+    else
+        loginctl "$2" 2>/dev/null || doas "$3"
+    fi
+}
+
+entries="󰤄  suspend
+󰜉  reboot
+󰐥  shutdown
+󰍃  log out"
+[ -n "$locker" ] && entries="󰌾  lock
+$entries"
+
+CHOICE=$(printf '%s\n' "$entries" | menu -p "power" -l 5) || exit 0
+[ -n "$CHOICE" ] || exit 0
+
+case ${CHOICE##*  } in
+    lock)     exec "$locker" ;;
+    suspend)  confirm "Suspend" "put the machine to sleep" && power --suspend suspend zzz ;;
+    reboot)   confirm "Reboot" "close every open window and restart" && power --reboot reboot reboot ;;
+    shutdown) confirm "Shut down" "close every open window and power off" && power --halt poweroff poweroff ;;
+    "log out")
+        confirm "Log out" "end the session and close every window" || exit 0
+        if [ -n "$session" ]; then
+            "$session" --logout
+        else
+            # Ending the session takes the whole X server with it, which is
+            # what logging out means here; killing oxwm alone would leave X
+            # running.
+            loginctl terminate-session "${XDG_SESSION_ID:-}" 2>/dev/null ||
+                pkill -u "$USER" -x oxwm
+        fi
+        ;;
+esac

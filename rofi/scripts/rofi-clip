@@ -1,0 +1,111 @@
+#!/bin/sh
+# Requires: rofi, xclip, rofi-clipd running; xdotool for the paste step
+# Clipboard history picker. Runs as a rofi script mode so each row can carry
+# its entry's hash out of band — the visible text is a one-line preview, but
+# what gets copied is the full original, newlines and all.
+#   Enter          paste the entry into the window rofi was opened over
+#   Shift+Delete   forget that entry
+# The entry goes to the clipboard either way, so a manual Ctrl+V still works
+# when the synthetic keystroke does not suit the app underneath.
+# Called with no arguments it launches the rofi that then calls it back, so
+# the keybinding stays a single path.
+set -u
+
+DIR="${XDG_CACHE_HOME:-$HOME/.cache}/rofi-clipboard"
+STORE="$DIR/store"
+INDEX="$DIR/index"
+
+if [ -z "${ROFI_RETV:-}" ]; then
+    exec rofi -show clipboard -modes "clipboard:$0"
+fi
+
+# Row options ride behind a NUL, with 0x1f between key and value. NUL cannot
+# survive a shell variable, so it has to come from the format string itself.
+US=$(printf '\037')
+
+list() {
+    if [ ! -s "$INDEX" ]; then
+        printf '\0message%sClipboard history is empty — is rofi-clipd running?\n' "$US"
+        return
+    fi
+    printf '\0prompt%sclipboard\n' "$US"
+    # keep-selection stops the cursor jumping back to the top after a delete.
+    printf '\0keep-selection%strue\n' "$US"
+    while IFS='	' read -r hash preview; do
+        printf '%s\0info%s%s\n' "$preview" "$US" "$hash"
+    done < "$INDEX"
+}
+
+# Type the paste keystroke into whatever the window manager focuses once rofi
+# is gone. It cannot be sent from here directly: rofi holds a keyboard grab
+# for as long as it is up, and XTEST events go to the grab holder, so this
+# runs detached and waits the grab out. Its stdout goes to /dev/null so it
+# cannot hold that pipe open either — see the note on xclip below.
+paste_into_focus() {
+    if ! command -v xdotool >/dev/null 2>&1; then
+        notify-send "Clipboard" "Copied — install xdotool to paste automatically." \
+            >/dev/null 2>&1
+        return 0
+    fi
+    (
+        # Up to three seconds of waiting for focus to land somewhere that is
+        # not rofi; if it never does, paste nowhere rather than into rofi.
+        target=""
+        i=0
+        while [ "$i" -lt 60 ]; do
+            class=$(xdotool getactivewindow getwindowclassname 2>/dev/null) || class=""
+            case $class in
+                ""|[Rr]ofi) ;;
+                *) target=$class; break ;;
+            esac
+            sleep 0.05
+            i=$((i + 1))
+        done
+        [ -n "$target" ] || exit 0
+
+        # Terminals keep Ctrl+V for the readline binding and put paste behind
+        # Shift; everything else takes the plain one.
+        case $target in
+            org.wezfurlong.wezterm|Alacritty|com.mitchellh.ghostty|kitty|foot|Foot)
+                key=ctrl+shift+v ;;
+            *)  key=ctrl+v ;;
+        esac
+
+        # Let the newly focused window settle before typing at it.
+        sleep 0.05
+        xdotool key --clearmodifiers "$key"
+    ) >/dev/null 2>&1 &
+}
+
+case "$ROFI_RETV" in
+    0) list ;;
+    1)
+        hash=${ROFI_INFO:-}
+        [ -n "$hash" ] && [ -f "$STORE/$hash" ] || exit 0
+        # xclip forks and holds the selection until something else claims it,
+        # so it has to outlive this script — which it does on its own. Its
+        # stdout has to go, though: it inherits the pipe rofi reads this script
+        # on, and rofi waits for EOF there before closing and dropping its
+        # keyboard grab. That EOF never comes while xclip holds the pipe open,
+        # and a hung rofi still holding the grab looks like a frozen desktop.
+        xclip -selection clipboard -i "$STORE/$hash" >/dev/null 2>&1
+        paste_into_focus
+        ;;
+    2)
+        # Typed text with no match: copy what was typed, it is the one thing
+        # the user could have meant.
+        if [ -n "${1:-}" ]; then
+            printf '%s' "$1" | xclip -selection clipboard -i >/dev/null 2>&1
+            paste_into_focus
+        fi
+        ;;
+    3)
+        hash=${ROFI_INFO:-}
+        if [ -n "$hash" ]; then
+            grep -v "^$hash	" "$INDEX" > "$INDEX.$$" 2>/dev/null
+            mv "$INDEX.$$" "$INDEX"
+            rm -f "$STORE/$hash"
+        fi
+        list
+        ;;
+esac

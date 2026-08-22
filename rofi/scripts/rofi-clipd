@@ -1,0 +1,104 @@
+#!/bin/sh
+# Requires: xclip
+# Clipboard history daemon. cliphist is Wayland-only, so this is the X11
+# stand-in: it polls the CLIPBOARD selection and keeps a copy of everything
+# that passes through it. Copying is what makes it useful — an X selection
+# lives in the process that owns it, so closing the app that copied a string
+# takes the string with it. rofi-clip reads what this writes.
+#
+# Usage: rofi-clipd            run in the foreground (autostart target)
+#        rofi-clipd --once     record the clipboard right now and exit
+#        rofi-clipd --clear    forget the whole history
+set -u
+
+DIR="${XDG_CACHE_HOME:-$HOME/.cache}/rofi-clipboard"
+STORE="$DIR/store"
+INDEX="$DIR/index"
+PIDFILE="$DIR/pid"
+
+# How many entries to keep, and how often to look. A second is under the
+# threshold where a copy-then-immediately-quit would be missed in practice.
+LIMIT=${ROFI_CLIP_LIMIT:-200}
+INTERVAL=${ROFI_CLIP_INTERVAL:-1}
+
+mkdir -p "$STORE"
+
+# md5sum is the entry's identity: same text, same file, so re-copying an old
+# entry moves it to the top instead of duplicating it.
+hash_of() { printf '%s' "$1" | md5sum | cut -d' ' -f1; }
+
+# One index line per entry, newest first: "<hash>\t<single-line preview>".
+# rofi rows cannot span lines, so newlines become a visible glyph and the
+# text is cut to something that fits a menu width.
+preview_of() {
+    printf '%s' "$1" | awk '
+        BEGIN { ORS = "" }
+        NR > 1 { print " ⏎ " }
+        { gsub(/\t/, " "); print }
+    ' | cut -c1-160
+}
+
+record() {
+    entry=$1
+
+    # Whitespace-only copies are almost always an accident of a drag select.
+    case $entry in
+        *[![:space:]]*) ;;
+        *) return 0 ;;
+    esac
+
+    hash=$(hash_of "$entry")
+    printf '%s' "$entry" > "$STORE/$hash"
+
+    tmp="$INDEX.$$"
+    printf '%s\t%s\n' "$hash" "$(preview_of "$entry")" > "$tmp"
+    if [ -f "$INDEX" ]; then
+        grep -v "^$hash	" "$INDEX" >> "$tmp"
+    fi
+    head -n "$LIMIT" "$tmp" > "$INDEX"
+    rm -f "$tmp"
+
+    # Everything past the limit fell off the index above; drop its payload
+    # too, or the store grows without bound.
+    for f in "$STORE"/*; do
+        [ -e "$f" ] || continue
+        grep -q "^${f##*/}	" "$INDEX" || rm -f "$f"
+    done
+}
+
+# UTF8_STRING keeps this to text: asking for whatever target an image or a
+# file-manager copy offers would store a blob nothing can paste back.
+current() { xclip -o -selection clipboard -t UTF8_STRING 2>/dev/null; }
+
+case "${1:-}" in
+    --once)
+        clip=$(current) || exit 0
+        [ -n "$clip" ] && record "$clip"
+        exit 0
+        ;;
+    --clear)
+        rm -rf "$STORE" "$INDEX"
+        mkdir -p "$STORE"
+        exit 0
+        ;;
+    "") ;;
+    *) echo "usage: rofi-clipd [--once|--clear]" >&2; exit 2 ;;
+esac
+
+# A second daemon would double every entry, so check for a live one first.
+if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+    echo "rofi-clipd: already running (pid $(cat "$PIDFILE"))" >&2
+    exit 1
+fi
+echo $$ > "$PIDFILE"
+trap 'rm -f "$PIDFILE"' EXIT INT TERM
+
+last=""
+while :; do
+    clip=$(current) || clip=""
+    if [ -n "$clip" ] && [ "$clip" != "$last" ]; then
+        last=$clip
+        record "$clip"
+    fi
+    sleep "$INTERVAL"
+done
