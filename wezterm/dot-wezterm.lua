@@ -29,10 +29,10 @@ config.warn_about_missing_glyphs = false
 --   }
 -- }
 
-config.color_scheme = 'nord'
+--config.color_scheme = 'nord'
 
 -- config.color_scheme = "Poimandres"
---config.color_scheme = 'Darkmatter'
+config.color_scheme = 'Darkmatter'
 config.color_schemes = {
   ["Darkmatter"] = {
     foreground = "#ffffff",

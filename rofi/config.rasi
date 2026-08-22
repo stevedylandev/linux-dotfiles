@@ -40,4 +40,4 @@ configuration {
     display-calc:        "calc";
 }
 
-@theme "nord"
+@theme "darkmatter"
