@@ -25,7 +25,7 @@ case "$BROWSER_CMD" in
 esac
 
 ENGINES=$(printf '%s\n' \
-    "󰖟  duckduckgo	https://duckduckgo.com/?q=%s" \
+    "󰖟  kagi	https://kagi.com/search?q=%s" \
     "󰊤  github	https://github.com/search?q=%s" \
     "󰛦  npm	https://www.npmjs.com/search?q=%s" \
     "󱘗  crates.io	https://crates.io/search?q=%s" \
