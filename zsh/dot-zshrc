@@ -37,6 +37,7 @@ bindkey '^O' edit-command-line
 # =============================================================================
 export EDITOR="nvim"
 export CLICOLOR=1
+export TERMINAL="wezterm"
 
 # Go
 export GOPATH="$HOME/.local/share/go"
