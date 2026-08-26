@@ -1,8 +1,9 @@
 #!/bin/sh
-# Requires: rofi, xclip, a color emoji font (Noto Color Emoji)
+# Requires: rofi, xclip, xdotool, a color emoji font (Noto Color Emoji)
 # Emoji and kaomoji picker: search by name, Enter copies the character to the
-# clipboard. There is no paste-into-the-window step because that needs xdotool
-# to fake a keystroke, which is not installed — copy and paste normally.
+# clipboard and pastes it into whatever window was focused before rofi opened.
+# Terminals don't bind plain ctrl+v to paste, so terminal window classes get
+# ctrl+shift+v instead; override the whole thing with ROFI_EMOJI_PASTE_KEYS.
 # Picks are remembered and float to the top, so the handful anyone actually
 # uses stop needing to be searched for.
 set -u
@@ -21,6 +22,8 @@ rows() {
     cat "$RECENT" "$DATA" | awk -F'\t' '!seen[$1]++ { printf "%s  %s\n", $1, $2 }'
 }
 
+TARGET_WIN=$(xdotool getactivewindow 2>/dev/null) || TARGET_WIN=
+
 CHOICE=$(rows | rofi -dmenu -i -no-custom -p "emoji" -matching normal) || exit 0
 [ -n "$CHOICE" ] || exit 0
 
@@ -28,6 +31,19 @@ CHAR=${CHOICE%%  *}
 NAME=${CHOICE#*  }
 
 printf '%s' "$CHAR" | xclip -selection clipboard -i
+
+if [ -n "$TARGET_WIN" ]; then
+    TARGET_CLASS=$(xdotool getwindowclassname "$TARGET_WIN" 2>/dev/null || echo)
+    case "$TARGET_CLASS" in
+        *[Tt]erm*|kitty|st|st-256color|foot|footclient|tilix|konsole)
+            DEFAULT_PASTE_KEYS="ctrl+shift+v" ;;
+        *)
+            DEFAULT_PASTE_KEYS="ctrl+v" ;;
+    esac
+    PASTE_KEYS=${ROFI_EMOJI_PASTE_KEYS:-$DEFAULT_PASTE_KEYS}
+    xdotool windowactivate --sync "$TARGET_WIN" 2>/dev/null
+    xdotool key --clearmodifiers --window "$TARGET_WIN" "$PASTE_KEYS" 2>/dev/null
+fi
 
 # Rewrite the recents file with this pick first and its older copy dropped.
 tmp="$RECENT.$$"
@@ -37,5 +53,5 @@ head -n "$RECENT_MAX" "$tmp" > "$RECENT"
 rm -f "$tmp"
 
 command -v dunstify >/dev/null 2>&1 &&
-    dunstify -r 7302 "Copied $CHAR" "$NAME" ||
-    notify-send "Copied $CHAR" "$NAME"
+    dunstify -r 7302 "Pasted $CHAR" "$NAME" ||
+    notify-send "Pasted $CHAR" "$NAME"
