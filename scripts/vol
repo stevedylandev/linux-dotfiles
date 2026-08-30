@@ -1,0 +1,55 @@
+#!/bin/sh
+# Requires: wireplumber (wpctl), and dunst or any notification daemon
+# Volume control without a menu, for the media keys and the bar. One script
+# does all four jobs; the vol-up/vol-down/vol-mute/vol-status symlinks beside
+# it pick which, so a keybind is a bare path with no arguments. The action can
+# also be given directly: `vol up`. The menu version is rofi-audio, which adds
+# mic and output switching.
+set -u
+
+STEP=${VOL_STEP:-5}
+# The same notification id rofi-audio uses, so a keypress and the menu replace
+# each other's popup rather than stacking two of them.
+NOTIFY_ID=7303
+
+# @DEFAULT_AUDIO_SINK@ always resolves to whatever is current, so none of this
+# needs to know which sink that is.
+SINK=@DEFAULT_AUDIO_SINK@
+
+# wpctl warns about rtkit on stderr under a plain X session; only stdout matters.
+volume()  { wpctl get-volume "$SINK" 2>/dev/null; }
+percent() { volume | awk '{ printf "%d", $2 * 100 }'; }
+
+# Tracks the level the same way rofi-audio does, so a notification reads the
+# same whether it came from a media key or from the menu.
+icon() {
+    case "$(volume)" in
+        *MUTED*) printf '󰝟' ;;
+        *) v=$(percent)
+           if   [ "$v" -eq 0 ];  then printf '󰕿'
+           elif [ "$v" -lt 34 ]; then printf '󰖀'
+           else                       printf '󰕾'
+           fi ;;
+    esac
+}
+
+report() {
+    msg="$(icon)  $(percent)%"
+    # int:value draws dunst's progress bar; notify-send is the fallback for a
+    # daemon that is not dunst.
+    dunstify -r "$NOTIFY_ID" -h "int:value:$(percent)" "Volume" "$msg" 2>/dev/null ||
+        notify-send "Volume" "$msg"
+}
+
+# The name it was called by (vol-up -> up), or the first argument if given.
+action=${1:-$(printf '%s' "${0##*/}" | sed 's/^vol-*//')}
+
+case "$action" in
+    # -l 1.0 caps at 100%, so a held key cannot push the sink into clipping.
+    up)     wpctl set-volume -l 1.0 "$SINK" "$STEP%+" 2>/dev/null; report ;;
+    down)   wpctl set-volume "$SINK" "$STEP%-" 2>/dev/null;        report ;;
+    mute)   wpctl set-mute "$SINK" toggle 2>/dev/null;             report ;;
+    # Bar block: prints and exits, no notification.
+    status) printf '%s  %s%%\n' "$(icon)" "$(percent)" ;;
+    *) echo "usage: ${0##*/} [up|down|mute|status]" >&2; exit 2 ;;
+esac
