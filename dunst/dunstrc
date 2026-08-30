@@ -11,12 +11,25 @@
     width = 350
     height = (0, 300)
     origin = top-right
-    offset = (12, 32)
+    # Polybar sits at y=8 with a height of 32 (24pt @ 96dpi), so its bottom
+    # edge is y=40; 48 clears it by the same 8px gap the bar leaves at the top.
+    offset = (12, 48)
 
     frame_width = 2
     frame_color = "#2b2b2b"
     separator_color = frame
     separator_height = 2
+
+    # Progress bar (dunstify -h int:value:N — the vol-* scripts use it).
+    # min == max so the bar is always flush with the text column:
+    # width - 2*frame_width - 2*horizontal_padding = 350 - 4 - 20.
+    progress_bar = true
+    progress_bar_height = 8
+    progress_bar_frame_width = 1
+    progress_bar_min_width = 326
+    progress_bar_max_width = 326
+    progress_bar_corner_radius = 4
+    progress_bar_corners = all
 
     padding = 10
     horizontal_padding = 10
@@ -48,17 +61,20 @@
     background = "#121113"
     foreground = "#999999"
     frame_color = "#2b2b2b"
+    highlight = "#5f8787"
     timeout = 4
 
 [urgency_normal]
     background = "#1c1b1d"
     foreground = "#ffffff"
     frame_color = "#e78a53"
+    highlight = "#e78a53"
     timeout = 6
 
 [urgency_critical]
     background = "#1c1b1d"
     foreground = "#ffffff"
     frame_color = "#e75353"
+    highlight = "#e75353"
     timeout = 0
 
