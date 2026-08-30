@@ -1,9 +1,9 @@
 #!/bin/sh
-# Start the polybar bars defined in ./config.ini (installed at
-# ~/.config/polybar/config.ini), replacing any bars already running.
+# Start the polybar bar defined in ./config.ini (installed at
+# ~/.config/polybar/config.ini), replacing any bar already running.
 #
-# The layout is two islands -- "left" and "right" -- as separate bar windows
-# with a real gap between them, so add any new bar to BARS below.
+# There is one bar window, spanning the screen and fully transparent; the
+# visible islands are built inside it out of modules (see modules/caps.ini).
 #
 # Meant to be run as the XFCE session client that used to be xfce4-panel —
 # see ../xfce/polybar-panel.sh, which does that swap.
@@ -19,12 +19,8 @@ while pgrep -u "$(id -u)" -x polybar >/dev/null 2>&1 && [ "$i" -lt 20 ]; do
     i=$((i + 1))
 done
 
-BARS="left right"
+polybar main &
 
-for bar in $BARS; do
-    polybar "$bar" &
-done
-
-# Stay alive as the session client for as long as the bars are up. polybar
-# re-execs in place on `polybar-msg cmd restart`, so these PIDs survive it.
+# Stay alive as the session client for as long as the bar is up. polybar
+# re-execs in place on `polybar-msg cmd restart`, so this PID survives it.
 wait

@@ -1,0 +1,381 @@
+#!/bin/sh
+# Requires: curl, jq, a Nerd Font (the glyphs are nf-md-*), and dunst or any
+# notification daemon for the `detail` action.
+# Weather for the bar, straight from the US National Weather Service. It began
+# as polybar-scripts' openweathermap-fullfeatured, but against api.weather.gov,
+# so there is no API key to keep out of the repo. The trade is that NWS only
+# covers the US and its territories: /points returns 404 for anywhere else and
+# the module goes blank.
+#
+# The bar gets current conditions and nothing else -- an icon and a temperature,
+# the same shape as every other module here. The forecast is a click away.
+#
+#   weather          one line for the bar (the default)
+#   weather detail   a notification with the full forecast and any alerts
+#
+# NWS asks callers for a contactable User-Agent and for restraint, and this
+# honours both. The grid lookup is cached for a day because a grid square does
+# not move, and the rendered line for NWS_INTERVAL seconds, so the polybar
+# restarts that screenchange-reload makes routine cost no requests at all. A
+# failed fetch falls back to the last good line rather than blanking the bar.
+set -u
+
+# Blank asks the network where we are; set both to pin a location and skip
+# the geolocation request entirely.
+LAT=${NWS_LAT:-}
+LON=${NWS_LON:-}
+# us = degrees F, si = degrees C. Passed straight through to NWS for the
+# forecast; observations always arrive in Celsius and are converted here.
+UNITS=${NWS_UNITS:-us}
+# Seconds a rendered line is reused before refetching. The module may poll
+# faster than this -- it just gets the cache back until this expires.
+INTERVAL=${NWS_INTERVAL:-900}
+# NWS wants a User-Agent it can contact about a misbehaving client; an email
+# address or a URL is what they ask for. Put yours here.
+UA=${NWS_UA:-"polybar-nws (https://github.com/polybar/polybar-scripts)"}
+# Polybar colour markup, left empty so the script prints plain text anywhere
+# else. modules/weather.ini fills both in from colors.ini, which is where the
+# palette belongs -- nothing in here should need editing to match the bar.
+ICON_COLOR=${NWS_ICON_COLOR:-}
+ALERT_COLOR=${NWS_ALERT_COLOR:-}
+# 1 names the active alert on the bar as well as flagging it. Off by default:
+# "Severe Thunderstorm Warning" is wider than everything else put together,
+# and it is one click away in `detail` either way.
+SHOW_ALERT_LABEL=${NWS_SHOW_ALERT_LABEL:-0}
+
+SYMBOL=°
+API=https://api.weather.gov
+CACHE=${XDG_CACHE_HOME:-$HOME/.cache}/polybar-nws
+GRID=$CACHE/grid
+# Icon, temperature and alert event, tab separated -- deliberately not the
+# finished bar string. The colours arrive from the module, so a bare run from a
+# shell has none; caching a painted line would let whichever ran last decide
+# how the bar looked for the next quarter hour, and would freeze the palette
+# in until the cache expired.
+LINE=$CACHE/line
+# How long the /points and station lookup is trusted. A day, so a laptop that
+# travelled overnight re-locates on its own.
+GRID_TTL=86400
+# vol uses 7303; a separate id so a volume popup and a forecast popup do not
+# replace each other.
+NOTIFY_ID=7304
+
+# NWS condition token -> glyph. $1 is day or night, $2 the token lifted out of
+# the icon URL; the full token list is at https://api.weather.gov/icons.
+#
+# These are nf-md (Material Design) glyphs, the family every other module here
+# draws from. nf-weather has a finer-grained set, but it is a visibly lighter
+# weight and read as pasted-in next to the solid icons around it.
+#
+# Every glyph below was checked at 13pt against the bar's own font. Material
+# only splits day from night for clear and partly cloudy skies; nothing else
+# needs it, since rain looks like rain whatever the hour.
+get_icon() {
+    case $2 in
+        skc)                          d='󰖙'; n='󰖔';;
+        few|sct)                      d='󰖕'; n='󰼱';;
+        bkn|ovc)                      d='󰖐'; n='󰖐';;
+        wind_skc|wind_few|wind_sct|wind_bkn|wind_ovc)
+                                      d='󰖝'; n='󰖝';;
+        rain)                         d='󰖖'; n='󰖖';;
+        rain_showers|rain_showers_hi) d='󰖗'; n='󰖗';;
+        tsra|tsra_sct|tsra_hi)        d='󰙾'; n='󰙾';;
+        snow)                         d='󰖘'; n='󰖘';;
+        blizzard)                     d='󰼶'; n='󰼶';;
+        sleet|fzra|rain_snow|rain_sleet|snow_sleet|rain_fzra|snow_fzra)
+                                      d='󰙿'; n='󰙿';;
+        fog)                          d='󰖑'; n='󰖑';;
+        haze|dust)                    d='󰼰'; n='󰼰';;
+        smoke)                        d='󰩱'; n='󰩱';;
+        hot)                          d='󱃂'; n='󱃂';;
+        cold)                         d='󱃃'; n='󱃃';;
+        tornado)                      d='󰼸'; n='󰼸';;
+        hurricane|tropical_storm)     d='󰢘'; n='󰢘';;
+        *)                            d='󰼯'; n='󰼯';;
+    esac
+
+    if [ "$1" = night ]; then printf '%s' "$n"; else printf '%s' "$d"; fi
+}
+
+# The condition lives in the icon URL's path, not in a field of its own:
+#   .../icons/land/day/tsra_hi,40/tsra,60?size=medium
+# Prints "day tsra_hi" -- the leading period wins, and both the ",40" chance
+# suffix and any second period are dropped.
+icon_parts() {
+    printf '%s' "${1%%\?*}" | awk -F/ '
+        {
+            for (i = 1; i < NF; i++)
+                if ($i == "day" || $i == "night") {
+                    sub(/,.*/, "", $(i + 1))
+                    print $i, $(i + 1)
+                    found = 1
+                    exit
+                }
+        }
+        END { if (!found) print "day unknown" }'
+}
+
+# curl with the headers NWS expects, plus a retry: gridpoint requests return
+# a 500 often enough that one attempt is not a fair test.
+fetch() {
+    curl -sfL --compressed --max-time 8 --retry 2 --retry-delay 1 \
+        -H "User-Agent: $UA" -H "Accept: application/geo+json" "$1"
+}
+
+# $2 wrapped in polybar's colour markup, or left alone when $1 is empty.
+paint() {
+    if [ -n "$1" ]; then printf '%%{F%s}%s%%{F-}' "$1" "$2"; else printf '%s' "$2"; fi
+}
+
+# The bar line, built from the three cached fields: glyph, temperature, and the
+# active alert event (empty when there is none). Painting happens here, at the
+# last possible moment, so the module's colours apply to a cached reading too.
+#
+# The trailing space goes *inside* the colour run. polybar clips each %{F...}
+# segment at the advance width of the text in it, and these glyphs draw wider
+# than the single cell they advance -- put the space after the %{F-} and the
+# overflow is cut off, leaving a half-rendered blob. It is the same reason
+# every other module here writes format-prefix = "<glyph> " rather than
+# hanging the space off the label.
+format_line() {
+    line="$(paint "$ICON_COLOR" "$1 ")$2$SYMBOL"
+    if [ -n "$3" ]; then
+        if [ "$SHOW_ALERT_LABEL" = 1 ]; then flag="󰀦 $3"; else flag='󰀦'; fi
+        line="$(paint "$ALERT_COLOR" "$flag ")$line"
+    fi
+    printf '%s\n' "$line"
+}
+
+# One field out of a JSON blob on stdin's place, empty rather than "null".
+j() { printf '%s' "$1" | jq -r "$2 // empty" 2>/dev/null; }
+
+# Seconds since $1 was last written; effectively infinite if it is not there.
+age() {
+    if [ -f "$1" ]; then
+        echo $(( $(date +%s) - $(stat -c %Y "$1") ))
+    else
+        echo 999999999
+    fi
+}
+
+# Observations are always Celsius no matter what ?units= asked for, so the
+# conversion happens here rather than being left to the API.
+c_to_display() {
+    [ -n "${1:-}" ] || return 1
+    if [ "$UNITS" = us ]; then
+        awk -v c="$1" 'BEGIN { printf "%.0f", c * 9 / 5 + 32 }'
+    else
+        awk -v c="$1" 'BEGIN { printf "%.0f", c }'
+    fi
+}
+
+kmh_to_display() {
+    [ -n "${1:-}" ] || return 1
+    if [ "$UNITS" = us ]; then
+        awk -v k="$1" 'BEGIN { printf "%.0f mph", k * 0.621371 }'
+    else
+        awk -v k="$1" 'BEGIN { printf "%.0f km/h", k }'
+    fi
+}
+
+# Whether $obs is recent enough to show as "now". Stations that report hourly
+# routinely skip a cycle, so the cutoff is two hours; past that the forecast is
+# the better answer. busybox date cannot parse an ISO stamp with an offset, and
+# jq's fromdateiso8601 insists on a "Z" -- NWS only ever sends "+00:00", so that
+# is the one offset translated, and anything else counts as fresh rather than
+# throwing away a good observation over a timestamp this cannot read.
+fresh_obs() {
+    [ -n "$obs" ] || return 1
+    ts=$(j "$obs" '.properties.timestamp | sub("\\+00:00$"; "Z") | fromdateiso8601')
+    [ -n "$ts" ] || return 0
+    [ $(( $(date +%s) - ts )) -lt 7200 ]
+}
+
+# Resolve coordinates to the three URLs everything else needs, and cache them.
+# NWS models the country as a grid of 2.5km squares; /points is the only way
+# to learn which square a latitude and longitude fall in, and the answer is
+# stable, so this runs once a day at most.
+resolve_grid() {
+    if [ -n "$LAT" ] && [ -n "$LON" ]; then
+        loc="$LAT,$LON"
+    else
+        # Two providers because both are free endpoints that go away without
+        # warning; either one is accurate enough to pick a 2.5km square.
+        loc=$(curl -sf --max-time 6 https://ipinfo.io/json | jq -r '.loc // empty')
+        [ -n "$loc" ] || loc=$(curl -sf --max-time 6 'http://ip-api.com/json/?fields=lat,lon' |
+            jq -r 'if .lat then "\(.lat),\(.lon)" else empty end')
+        [ -n "$loc" ] || return 1
+    fi
+
+    # NWS caps coordinate precision at four decimals: /points answers anything
+    # longer with a 301 to the truncated form, and /alerts just returns a 500.
+    # Round here so neither can surprise a hand-set NWS_LAT later on.
+    loc=$(printf '%s' "$loc" | awk -F, '{ printf "%.4f,%.4f", $1, $2 }')
+
+    points=$(fetch "$API/points/$loc") || return 1
+    hourly=$(j "$points" '.properties.forecastHourly')
+    daily=$(j "$points" '.properties.forecast')
+    stations=$(j "$points" '.properties.observationStations')
+    place=$(j "$points" '.properties.relativeLocation.properties |
+        if .city then "\(.city), \(.state)" else empty end')
+    [ -n "$hourly" ] && [ -n "$stations" ] || return 1
+
+    # The station list is not sorted by distance despite looking like it is --
+    # for Denver it leads with an airport 24km up the highway -- so pick the
+    # nearest one properly. Flat-earth distance with a cosine correction on the
+    # longitude is plenty over the handful of kilometres in play here.
+    station=$(fetch "$stations" | jq -r --argjson lat "${loc%,*}" --argjson lon "${loc#*,}" '
+        [ .features[]
+          | { id: .properties.stationIdentifier,
+              dx: ((.geometry.coordinates[0] - $lon) * (($lat * 3.14159265 / 180) | cos)),
+              dy: (.geometry.coordinates[1] - $lat) } ]
+        | min_by(.dx * .dx + .dy * .dy)
+        | .id // empty')
+    [ -n "$station" ] || return 1
+
+    mkdir -p "$CACHE"
+    printf '%s\n%s\n%s\n%s\n%s\n' "$hourly" "$daily" "$station" "$loc" "$place" > "$GRID"
+}
+
+# Populates grid_hourly, grid_daily, grid_station, grid_point and grid_place.
+load_grid() {
+    if [ "$(age "$GRID")" -gt "$GRID_TTL" ]; then
+        resolve_grid || [ -f "$GRID" ] || return 1
+    fi
+    grid_hourly=$(sed -n 1p "$GRID")
+    grid_daily=$(sed -n 2p "$GRID")
+    grid_station=$(sed -n 3p "$GRID")
+    grid_point=$(sed -n 4p "$GRID")
+    grid_place=$(sed -n 5p "$GRID")
+    [ -n "$grid_hourly" ]
+}
+
+# NWS hands back active alerts in no particular order, so severity has to be
+# sorted on rather than assumed. Shared by the bar, which wants only the worst
+# one, and by detail, which lists them all. The severity has to be bound before
+# the ranking array is piped in, or the index lookup reads .severity off the
+# array instead of off the alert.
+ALERT_ORDER='[.features[].properties]
+    | sort_by((.severity // "Unknown") as $s
+              | (["Extreme", "Severe", "Moderate", "Minor"] | index($s)) // 9)'
+
+# The most serious active alert for our point, or nothing.
+active_alert() {
+    fetch "$API/alerts/active?point=$grid_point" | jq -r "$ALERT_ORDER | .[0].event // empty"
+}
+
+render() {
+    load_grid || return 1
+
+    temp=
+    icon_url=
+    obs=$(fetch "$API/stations/$grid_station/observations/latest")
+
+    # The observation is a real measurement and is what "now" ought to mean.
+    if fresh_obs; then
+        temp=$(c_to_display "$(j "$obs" '.properties.temperature.value')") || temp=
+        icon_url=$(j "$obs" '.properties.icon')
+    fi
+
+    # Small stations drop out for hours at a time, and a four-hour-old reading
+    # is worse than none. Period 1 of the hourly forecast covers the current
+    # hour and stands in when that happens -- which is why this request sits
+    # down here rather than up beside the observation: in the ordinary case the
+    # station answers and it never runs at all.
+    if [ -z "$temp" ] || [ -z "$icon_url" ]; then
+        hourly=$(fetch "$grid_hourly?units=$UNITS")
+        [ -n "$temp" ] || temp=$(j "$hourly" '.properties.periods[0].temperature')
+        [ -n "$icon_url" ] || icon_url=$(j "$hourly" '.properties.periods[0].icon')
+    fi
+
+    [ -n "$temp" ] || return 1
+    # NWS sends whole numbers today; this is here so a stray decimal cannot
+    # turn up inside the bar label.
+    temp=${temp%%.*}
+
+    # Unquoted on purpose: icon_parts prints the two arguments get_icon takes.
+    icon=$(get_icon $(icon_parts "$icon_url"))
+    alert=$(active_alert)
+
+    mkdir -p "$CACHE"
+    printf '%s\t%s\t%s\n' "$icon" "$temp" "$alert" > "$LINE"
+    format_line "$icon" "$temp" "$alert"
+}
+
+# The cached reading, repainted with whatever colours this run was given.
+# Fails on a missing file, and on the painted single-field line older versions
+# of this script wrote, so either one just falls through to a fresh fetch.
+show_cached() {
+    [ -f "$LINE" ] || return 1
+    IFS=$(printf '\t') read -r icon temp alert < "$LINE" || return 1
+    [ -n "$temp" ] || return 1
+    format_line "$icon" "$temp" "$alert"
+}
+
+# The bar line, from cache when it is still fresh. A failed fetch prints the
+# last good line however old it is: a stale temperature is more use on a bar
+# than a module that vanishes whenever the wifi hiccups.
+bar() {
+    if [ "$(age "$LINE")" -lt "$INTERVAL" ] && show_cached; then
+        return 0
+    fi
+    render && return 0
+
+    # Nothing new and nothing cached is either the first run without a network
+    # or a location NWS does not cover. Say so on stderr, where polybar's log
+    # will keep it, and exit clean so polybar does not treat it as a crash.
+    show_cached ||
+        echo "${0##*/}: no forecast (offline, or outside NWS coverage)" >&2
+    return 0
+}
+
+# Everything that does not fit on the bar: the alerts in full, what the nearest
+# station is actually reading, and the NWS forecaster's own prose for the
+# current period.
+detail() {
+    load_grid || { notify "Weather" "No NWS grid for this location"; return 1; }
+
+    obs=$(fetch "$API/stations/$grid_station/observations/latest")
+    daily=$(fetch "$grid_daily?units=$UNITS")
+
+    body=""
+
+    alerts=$(fetch "$API/alerts/active?point=$grid_point" |
+        jq -r "$ALERT_ORDER"' | .[] | "\(.event) - \(.headline // "")"')
+    [ -n "$alerts" ] && body="$alerts
+
+"
+
+    if fresh_obs; then
+        temp=$(c_to_display "$(j "$obs" '.properties.temperature.value')") || temp=""
+        hum=$(j "$obs" '.properties.relativeHumidity.value')
+        wind=$(kmh_to_display "$(j "$obs" '.properties.windSpeed.value')") || wind=""
+        # Whichever of the two "feels like" numbers is in season; NWS leaves
+        # the other null rather than sending both.
+        feels=$(c_to_display "$(j "$obs" '.properties.heatIndex.value')") ||
+            feels=$(c_to_display "$(j "$obs" '.properties.windChill.value')") || feels=""
+
+        line="$(j "$obs" '.properties.textDescription') $temp$SYMBOL"
+        [ -n "$feels" ] && line="$line (feels $feels$SYMBOL)"
+        [ -n "$hum" ] && line="$line, $(awk -v h="$hum" 'BEGIN { printf "%.0f", h }')% humidity"
+        [ -n "$wind" ] && line="$line, wind $wind"
+    else
+        line="No recent reading from $grid_station"
+    fi
+    body="$body$line
+
+$(j "$daily" '.properties.periods[0] | "\(.name): \(.detailedForecast)"')"
+
+    notify "${grid_place:-Weather} ($grid_station)" "$body"
+}
+
+notify() {
+    dunstify -r "$NOTIFY_ID" -t 15000 "$1" "$2" 2>/dev/null ||
+        notify-send "$1" "$2"
+}
+
+case "${1:-bar}" in
+    bar)    bar ;;
+    detail) detail ;;
+    *) echo "usage: ${0##*/} [bar|detail]" >&2; exit 2 ;;
+esac

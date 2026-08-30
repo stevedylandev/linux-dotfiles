@@ -19,6 +19,17 @@ set -u
 CHANNEL=xfce4-session
 BACKUP="${XDG_DATA_HOME:-$HOME/.local/share}/polybar-panel.backup"
 
+# xfwm4's compositor shadows a dock as a rectangle the size of its window,
+# ignoring what the window actually paints. polybar's bar spans the screen and
+# is transparent everywhere except the islands, so that shadow shows up as a
+# band hanging across the empty middle. Turning it off is the only knob for it;
+# true is xfwm4's default, which --remove puts back.
+dock_shadow() {
+    command -v xfconf-query >/dev/null 2>&1 || return 0
+    xfconf-query -c xfwm4 -p /general/show_dock_shadow -s "$1" 2>/dev/null ||
+        xfconf-query -c xfwm4 -p /general/show_dock_shadow -n -t bool -s "$1"
+}
+
 # Where the polybar launcher lives. The repo layout is the default; point
 # POLYBAR_LAUNCH somewhere else to use an installed copy instead.
 LAUNCH=${POLYBAR_LAUNCH:-$(CDPATH= cd -- "$(dirname -- "$0")/../polybar" 2>/dev/null && pwd)/launch.sh}
@@ -63,6 +74,7 @@ case "${1:-}" in
         echo "restored $prop -> $cmd"
     done <"$BACKUP"
     rm -f "$BACKUP"
+    dock_shadow true
     polybar-msg cmd quit >/dev/null 2>&1 || pkill -u "$(id -u)" -x polybar
     [ -n "${DISPLAY:-}" ] && command -v xfce4-panel >/dev/null 2>&1 &&
         (xfce4-panel >/dev/null 2>&1 &)
@@ -80,6 +92,7 @@ case "${1:-}" in
     done
     clients | grep -q "$LAUNCH" && found=1
     [ "$found" = 1 ] || { echo "polybar-panel: no xfce4-panel session client found" >&2; exit 1; }
+    dock_shadow false
     if [ -n "${DISPLAY:-}" ]; then
         pgrep -u "$(id -u)" -x xfce4-panel >/dev/null 2>&1 &&
             xfce4-panel --quit >/dev/null 2>&1
