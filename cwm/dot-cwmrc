@@ -1,0 +1,13 @@
+# ~/.cwmrc
+
+fontname "sans-serif:pixelsize=14"
+sticky yes
+gap 0 0 0 0
+
+# Applications
+command "term" "st"
+
+# Key bindings
+# NOTE: cwm modifier prefixes are C=Control, M=Meta/Alt, S=Shift, 4=Mod4(Super/Windows), 5=Mod5(AltGr)
+# The Super/"Mod" key on this keyboard is Mod4, so it must be written as "4-", not "M-".
+bind-key 4-Return terminal

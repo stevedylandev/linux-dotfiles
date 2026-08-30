@@ -265,3 +265,4 @@ if [ -d "$FNM_PATH" ]; then
   export PATH="$FNM_PATH:$PATH"
   eval "$(fnm env --shell zsh)"
 fi
+export NO_AT_BRIDGE=1 # stops GTK apps relaunching it
