@@ -20,6 +20,8 @@ PIDFILE="$DIR/pid"
 # threshold where a copy-then-immediately-quit would be missed in practice.
 LIMIT=${ROFI_CLIP_LIMIT:-200}
 INTERVAL=${ROFI_CLIP_INTERVAL:-1}
+# How long to give an unresponsive selection owner before giving up on a read.
+READ_TIMEOUT=${ROFI_CLIP_READ_TIMEOUT:-2}
 
 mkdir -p "$STORE"
 
@@ -68,7 +70,13 @@ record() {
 
 # UTF8_STRING keeps this to text: asking for whatever target an image or a
 # file-manager copy offers would store a blob nothing can paste back.
-current() { xclip -o -selection clipboard -t UTF8_STRING 2>/dev/null; }
+#
+# The timeout is not optional. An X selection is served by the process that
+# owns it, so reading one is a round trip to another program — and if that
+# program stops answering (it died mid-transfer, or it is wedged), xclip waits
+# on the reply forever. With no timeout that hangs this loop too, and history
+# quietly stops recording until the daemon is restarted by hand.
+current() { timeout "$READ_TIMEOUT" xclip -o -selection clipboard -t UTF8_STRING 2>/dev/null; }
 
 case "${1:-}" in
     --once)
@@ -86,12 +94,30 @@ case "${1:-}" in
 esac
 
 # A second daemon would double every entry, so check for a live one first.
-if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE")" 2>/dev/null; then
+# The trap below clears the pidfile on a clean exit, but a kill -9 or a reboot
+# leaves it behind — and that stale pid is eventually handed to some unrelated
+# process, which would make this refuse to start at every login from then on.
+# So the pid has to still be this script, not merely alive.
+running() {
+    [ -f "$PIDFILE" ] || return 1
+    pid=$(cat "$PIDFILE" 2>/dev/null) || return 1
+    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null || return 1
+    tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -q "${0##*/}"
+}
+
+if running; then
     echo "rofi-clipd: already running (pid $(cat "$PIDFILE"))" >&2
     exit 1
 fi
 echo $$ > "$PIDFILE"
-trap 'rm -f "$PIDFILE"' EXIT INT TERM
+# EXIT clears the pidfile on every way out. INT and TERM need handlers that
+# actually exit: a handler that just cleans up returns into the loop, leaving a
+# daemon that ignores kill *and* has already deleted the pidfile guarding
+# against a second one — so the next login starts a duplicate that records
+# every copy twice.
+trap 'rm -f "$PIDFILE"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 last=""
 while :; do
