@@ -1,6 +1,6 @@
 #!/bin/sh
-# Requires: curl, jq, a Nerd Font (the glyphs are nf-md-*), and dunst or any
-# notification daemon for the `detail` action.
+# Requires: curl, jq, a Nerd Font (the glyphs are nf-md-*), and linecast plus a
+# terminal for the `detail` action.
 # Weather for the bar, straight from the US National Weather Service. It began
 # as polybar-scripts' openweathermap-fullfeatured, but against api.weather.gov,
 # so there is no API key to keep out of the repo. The trade is that NWS only
@@ -11,7 +11,7 @@
 # the same shape as every other module here. The forecast is a click away.
 #
 #   weather          one line for the bar (the default)
-#   weather detail   a notification with the full forecast and any alerts
+#   weather detail   opens $TERMINAL on `linecast weather` for the full forecast
 #
 # NWS asks callers for a contactable User-Agent and for restraint, and this
 # honours both. The grid lookup is cached for a day because a grid square does
@@ -20,8 +20,9 @@
 # failed fetch falls back to the last good line rather than blanking the bar.
 set -u
 
-# Blank asks the network where we are; set both to pin a location and skip
-# the geolocation request entirely.
+# The location, in decimal degrees. There is no geolocation lookup here -- set
+# both, in modules/weather.ini or in the environment, or the module stays blank
+# and says why on stderr.
 LAT=${NWS_LAT:-}
 LON=${NWS_LON:-}
 # us = degrees F, si = degrees C. Passed straight through to NWS for the
@@ -53,12 +54,10 @@ GRID=$CACHE/grid
 # how the bar looked for the next quarter hour, and would freeze the palette
 # in until the cache expired.
 LINE=$CACHE/line
-# How long the /points and station lookup is trusted. A day, so a laptop that
-# travelled overnight re-locates on its own.
+# How long the /points and station lookup is trusted. The square does not move
+# now that the coordinates are pinned, but stations do come and go, so the
+# lookup is redone daily.
 GRID_TTL=86400
-# vol uses 7303; a separate id so a volume popup and a forecast popup do not
-# replace each other.
-NOTIFY_ID=7304
 
 # NWS condition token -> glyph. $1 is day or night, $2 the token lifted out of
 # the icon URL; the full token list is at https://api.weather.gov/icons.
@@ -169,15 +168,6 @@ c_to_display() {
     fi
 }
 
-kmh_to_display() {
-    [ -n "${1:-}" ] || return 1
-    if [ "$UNITS" = us ]; then
-        awk -v k="$1" 'BEGIN { printf "%.0f mph", k * 0.621371 }'
-    else
-        awk -v k="$1" 'BEGIN { printf "%.0f km/h", k }'
-    fi
-}
-
 # Whether $obs is recent enough to show as "now". Stations that report hourly
 # routinely skip a cycle, so the cutoff is two hours; past that the forecast is
 # the better answer. busybox date cannot parse an ISO stamp with an offset, and
@@ -196,28 +186,19 @@ fresh_obs() {
 # to learn which square a latitude and longitude fall in, and the answer is
 # stable, so this runs once a day at most.
 resolve_grid() {
-    if [ -n "$LAT" ] && [ -n "$LON" ]; then
-        loc="$LAT,$LON"
-    else
-        # Two providers because both are free endpoints that go away without
-        # warning; either one is accurate enough to pick a 2.5km square.
-        loc=$(curl -sf --max-time 6 https://ipinfo.io/json | jq -r '.loc // empty')
-        [ -n "$loc" ] || loc=$(curl -sf --max-time 6 'http://ip-api.com/json/?fields=lat,lon' |
-            jq -r 'if .lat then "\(.lat),\(.lon)" else empty end')
-        [ -n "$loc" ] || return 1
+    if [ -z "$LAT" ] || [ -z "$LON" ]; then
+        echo "${0##*/}: set NWS_LAT and NWS_LON to the location you want" >&2
+        return 1
     fi
 
     # NWS caps coordinate precision at four decimals: /points answers anything
     # longer with a 301 to the truncated form, and /alerts just returns a 500.
-    # Round here so neither can surprise a hand-set NWS_LAT later on.
-    loc=$(printf '%s' "$loc" | awk -F, '{ printf "%.4f,%.4f", $1, $2 }')
+    # Round here so neither can surprise a hand-set NWS_LAT.
+    loc=$(printf '%s' "$LAT,$LON" | awk -F, '{ printf "%.4f,%.4f", $1, $2 }')
 
     points=$(fetch "$API/points/$loc") || return 1
     hourly=$(j "$points" '.properties.forecastHourly')
-    daily=$(j "$points" '.properties.forecast')
     stations=$(j "$points" '.properties.observationStations')
-    place=$(j "$points" '.properties.relativeLocation.properties |
-        if .city then "\(.city), \(.state)" else empty end')
     [ -n "$hourly" ] && [ -n "$stations" ] || return 1
 
     # The station list is not sorted by distance despite looking like it is --
@@ -234,27 +215,24 @@ resolve_grid() {
     [ -n "$station" ] || return 1
 
     mkdir -p "$CACHE"
-    printf '%s\n%s\n%s\n%s\n%s\n' "$hourly" "$daily" "$station" "$loc" "$place" > "$GRID"
+    printf '%s\n%s\n%s\n' "$hourly" "$station" "$loc" > "$GRID"
 }
 
-# Populates grid_hourly, grid_daily, grid_station, grid_point and grid_place.
+# Populates grid_hourly, grid_station and grid_point.
 load_grid() {
     if [ "$(age "$GRID")" -gt "$GRID_TTL" ]; then
         resolve_grid || [ -f "$GRID" ] || return 1
     fi
     grid_hourly=$(sed -n 1p "$GRID")
-    grid_daily=$(sed -n 2p "$GRID")
-    grid_station=$(sed -n 3p "$GRID")
-    grid_point=$(sed -n 4p "$GRID")
-    grid_place=$(sed -n 5p "$GRID")
+    grid_station=$(sed -n 2p "$GRID")
+    grid_point=$(sed -n 3p "$GRID")
     [ -n "$grid_hourly" ]
 }
 
 # NWS hands back active alerts in no particular order, so severity has to be
-# sorted on rather than assumed. Shared by the bar, which wants only the worst
-# one, and by detail, which lists them all. The severity has to be bound before
-# the ranking array is piped in, or the index lookup reads .severity off the
-# array instead of off the alert.
+# sorted on rather than assumed -- the bar only ever shows the worst one. The
+# severity has to be bound before the ranking array is piped in, or the index
+# lookup reads .severity off the array instead of off the alert.
 ALERT_ORDER='[.features[].properties]
     | sort_by((.severity // "Unknown") as $s
               | (["Extreme", "Severe", "Moderate", "Minor"] | index($s)) // 9)'
@@ -329,49 +307,16 @@ bar() {
     return 0
 }
 
-# Everything that does not fit on the bar: the alerts in full, what the nearest
-# station is actually reading, and the NWS forecaster's own prose for the
-# current period.
+# Everything that does not fit on the bar. linecast already draws the whole
+# thing -- hourly curve, alerts, sun times -- in a terminal, and does it better
+# than a notification body can, so the click just opens it. exec because
+# nothing here needs to outlive the terminal.
+#
+# $TERMINAL comes from the shell profile, which polybar only inherits if it was
+# started from a login session; wezterm is the fallback so a click still works
+# when it was not. -e is what wezterm, alacritty, kitty and xterm all take.
 detail() {
-    load_grid || { notify "Weather" "No NWS grid for this location"; return 1; }
-
-    obs=$(fetch "$API/stations/$grid_station/observations/latest")
-    daily=$(fetch "$grid_daily?units=$UNITS")
-
-    body=""
-
-    alerts=$(fetch "$API/alerts/active?point=$grid_point" |
-        jq -r "$ALERT_ORDER"' | .[] | "\(.event) - \(.headline // "")"')
-    [ -n "$alerts" ] && body="$alerts
-
-"
-
-    if fresh_obs; then
-        temp=$(c_to_display "$(j "$obs" '.properties.temperature.value')") || temp=""
-        hum=$(j "$obs" '.properties.relativeHumidity.value')
-        wind=$(kmh_to_display "$(j "$obs" '.properties.windSpeed.value')") || wind=""
-        # Whichever of the two "feels like" numbers is in season; NWS leaves
-        # the other null rather than sending both.
-        feels=$(c_to_display "$(j "$obs" '.properties.heatIndex.value')") ||
-            feels=$(c_to_display "$(j "$obs" '.properties.windChill.value')") || feels=""
-
-        line="$(j "$obs" '.properties.textDescription') $temp$SYMBOL"
-        [ -n "$feels" ] && line="$line (feels $feels$SYMBOL)"
-        [ -n "$hum" ] && line="$line, $(awk -v h="$hum" 'BEGIN { printf "%.0f", h }')% humidity"
-        [ -n "$wind" ] && line="$line, wind $wind"
-    else
-        line="No recent reading from $grid_station"
-    fi
-    body="$body$line
-
-$(j "$daily" '.properties.periods[0] | "\(.name): \(.detailedForecast)"')"
-
-    notify "${grid_place:-Weather} ($grid_station)" "$body"
-}
-
-notify() {
-    dunstify -r "$NOTIFY_ID" -t 15000 "$1" "$2" 2>/dev/null ||
-        notify-send "$1" "$2"
+    exec "${TERMINAL:-wezterm}" -e linecast weather
 }
 
 case "${1:-bar}" in

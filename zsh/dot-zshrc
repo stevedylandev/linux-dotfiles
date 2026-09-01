@@ -56,6 +56,10 @@ export BULLETS_FEEDS="feeds.stevedylan.dev/feed.xml"
 # pnpm
 export PNPM_HOME="$HOME/Library/pnpm"
 
+# Weather
+export NWS_LAT="35.0274115"
+export NWS_LONG="-85.3183822"
+
 # fzf
 export FZF_DEFAULT_COMMAND='fd --type f --hidden --exclude ".git"'
 export FZF_DEFAULT_OPTS='
