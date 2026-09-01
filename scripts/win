@@ -1,0 +1,62 @@
+#!/bin/sh
+# Requires: xdotool, xprop (xorg-xprop)
+# Size and place the focused window as a percentage of the usable screen.
+# xfwm4's own tile_* keys already cover halves and quarters (Shift+Super+h/l);
+# this is for the geometries it has no name for -- a centered 60% window, a
+# narrow reading column. The argument is WxH, optionally +X+Y, all in percent
+# of the work area, with no offset meaning centered:
+#   win 60x70       60% wide, 70% tall, centered
+#   win 100x40+0+0  full width, top 40%
+# The win-* symlinks beside it are presets, so a keybind is a bare path with
+# no arguments -- the same trick vol-up/vol-down use.
+set -u
+
+win=$(xdotool getactivewindow 2>/dev/null) || exit 0
+
+# The name it was called by (win-center -> center), or the first argument.
+geom=${1:-$(printf '%s' "${0##*/}" | sed 's/^win-*//')}
+
+case "$geom" in
+    center) geom=40x60     ;;
+    big)    geom=90x90     ;;
+    small)  geom=40x50     ;;
+    read)   geom=45x90     ;;
+    full)   geom=100x100   ;;
+esac
+
+# Split WxH[+X+Y]. A missing offset stays empty and is read as "centre me".
+pw=${geom%%x*}
+rest=${geom#*x}
+case "$rest" in
+    *+*+*) ph=${rest%%+*}; off=${rest#*+}; px=${off%%+*}; py=${off#*+} ;;
+    *)     ph=$rest;       px=;            py= ;;
+esac
+
+case "$pw$ph$px$py" in
+    *[!0-9]*|'') echo "usage: ${0##*/} WxH[+X+Y] | center|big|small|read|full" >&2; exit 2 ;;
+esac
+
+# xfwm4 refuses to resize a maximized window, so drop those states first;
+# without this the first press after a maximize silently does nothing.
+xdotool windowstate --remove MAXIMIZED_VERT --remove MAXIMIZED_HORZ "$win" 2>/dev/null
+
+# The first desktop's work area: the screen minus polybar's reserved strip, so
+# a 100%-tall window stops at the bar instead of sliding under it.
+set -- $(xprop -root _NET_WORKAREA | sed 's/.*= //; s/,//g')
+ax=$1 ay=$2 aw=$3 ah=$4
+
+# windowmove places the frame, but windowsize sets the *client* area, so the
+# decorations have to come off the requested size or every window lands one
+# title bar too tall.
+set -- $(xprop -id "$win" _NET_FRAME_EXTENTS 2>/dev/null | sed 's/.*= //; s/,//g')
+fl=${1:-0} fr=${2:-0} ft=${3:-0} fb=${4:-0}
+
+w=$((aw * pw / 100))
+h=$((ah * ph / 100))
+# An omitted offset centres on that axis, which is what most of the presets
+# want; a given one is a percentage from the work area's top-left corner.
+if [ -n "$px" ]; then x=$((ax + aw * px / 100)); else x=$((ax + (aw - w) / 2)); fi
+if [ -n "$py" ]; then y=$((ay + ah * py / 100)); else y=$((ay + (ah - h) / 2)); fi
+
+xdotool windowmove "$win" "$x" "$y" \
+        windowsize "$win" $((w - fl - fr)) $((h - ft - fb))
