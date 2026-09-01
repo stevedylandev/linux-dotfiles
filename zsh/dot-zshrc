@@ -58,7 +58,7 @@ export PNPM_HOME="$HOME/Library/pnpm"
 
 # Weather
 export NWS_LAT="35.0274115"
-export NWS_LONG="-85.3183822"
+export NWS_LON="-85.3183822"
 
 # fzf
 export FZF_DEFAULT_COMMAND='fd --type f --hidden --exclude ".git"'
