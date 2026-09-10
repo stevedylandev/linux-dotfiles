@@ -12,13 +12,13 @@ let s:base0F = [ '#444444', '238' ]
 
 let s:p = {'normal': {}, 'inactive': {}, 'insert': {}, 'replace': {}, 'visual': {}, 'tabline': {}}
 
-let s:p.normal.left     = [ [ s:base00, s:base0A ], [ s:base05, s:base02 ] ]
+let s:p.normal.left     = [ [ s:base00, s:base0B ], [ s:base05, s:base02 ] ]
 let s:p.normal.middle   = [ [ s:base04, s:base01 ] ]
 let s:p.normal.right    = [ [ s:base00, s:base04 ], [ s:base05, s:base02 ], [ s:base04, s:base01 ] ]
 let s:p.normal.error    = [ [ s:base00, s:base0A ] ]
 let s:p.normal.warning  = [ [ s:base00, s:base0B ] ]
 
-let s:p.insert.left     = [ [ s:base00, s:base0B ], [ s:base05, s:base02 ] ]
+let s:p.insert.left     = [ [ s:base00, s:base0A ], [ s:base05, s:base02 ] ]
 let s:p.replace.left    = [ [ s:base00, s:base08 ], [ s:base05, s:base02 ] ]
 let s:p.visual.left     = [ [ s:base00, s:base05 ], [ s:base05, s:base02 ] ]
 
