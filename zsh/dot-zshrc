@@ -252,8 +252,8 @@ command -v starship >/dev/null 2>&1 && eval "$(starship init zsh)"
 command -v fzf >/dev/null 2>&1 && eval "$(fzf --zsh)"
 
 # zsh-autosuggestions and syntax highlighting
-source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
-source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+source $HOME/.zsh/zsh-autosuggestions/zsh-autosuggestions.zsh
+source $HOME/.zsh/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 export PATH="$HOME/.local/bin:$PATH"
 
 # bun completions
