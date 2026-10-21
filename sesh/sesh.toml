@@ -1,7 +1,7 @@
 [tui]
 show_icons = true
 show_windows = true
-prompt = "󰄾 "
+prompt = "󰘧 "
 placeholder = "Choose a session"
 group_separator = true
 preview = true
@@ -24,3 +24,19 @@ path = "~/Developer/stevedylan.dev"
 icon = ""
 alias = "sd"
 alias_auto_connect = true
+
+[[session]]
+name = "notes"
+path = "~/notes"
+icon = "󱞁"
+alias = "no"
+alias_auto_connect = true
+
+[[session]]
+name = "blog posts"
+path = "~/Developer/stevedylan.dev/src/content/post"
+startup_command = "nvim"
+icon = "󱀈"
+alias = "bp"
+alias_auto_connect = true
+
