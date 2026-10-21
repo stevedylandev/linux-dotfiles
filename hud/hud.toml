@@ -52,9 +52,8 @@ sections = [
     { title = "Weather", command = "curl -s 'wttr.in?0'", refresh = 300 },
   ],
   [
-    { title = "Config + Zoxide", recipe = "sesh", command = "sesh list -c -z -d --json", columns = ["Name"] },
-    { title = "Nutiliti/nutiliti", recipe = "nutiliti-worktrees" },
-    { title = "joshmedeski/sesh", recipe = "sesh-worktrees" },
+    {title = "Box", command = "linecast weather", },
+    {title = "Box", command = "btop", }
   ],
 ]
 
