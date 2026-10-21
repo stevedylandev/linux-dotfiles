@@ -92,6 +92,7 @@ path_add() {
 
 path_add "/opt/homebrew/bin"
 path_add "/usr/local/go/bin"
+path_add "$HOME/go/bin"
 path_add "$HOME/.cargo/bin"
 path_add "$HOME/.local/share/go/bin"
 path_add "$HOME/.local/bin"
@@ -149,6 +150,7 @@ alias lst='lstr --icons --color=always --size'
 alias keys='keysmasher'
 alias timestamp='node -e "process.stdout.write(new Date().toISOString())"'
 alias cleardns='sudo dscacheutil -flushcache; sudo killall -HUP mDNSResponder'
+alias t='sesh picker'
 
 # -------------------------------------------
 # Suffix Aliases - Open Files by Extension
@@ -168,16 +170,6 @@ alias -s html=open  # macOS: open in default browser
 # =============================================================================
 # Functions
 # =============================================================================
-# Open a sesh session via gum filter
-t() {
-  local selected
-  selected=$(sesh list -i | gum filter --limit 1 --placeholder "Choose a session" --height 50 --prompt="> " --indicator.foreground="2" --match.foreground="2")
-  if [ -z "$selected" ]; then
-    echo "No session selected"
-  else
-    sesh connect "$selected"
-  fi
-}
 
 # Fuzzy-find a file and open in nvim
 nvimf() {
@@ -213,24 +205,8 @@ nh() {
 
 # Copy file contents to clipboard
 cpf() {
-  cat "$1" | pbcopy
+  cat "$1" | wl-copy
   echo "✔︎ Copied to clipboard!"
-}
-
-# Set orbiter key to personal
-orbiter-personal() {
-  gum spin --spinner dot --spinner.foreground="2" --title "Updating..." -- orbiter auth --key "$(op read 'op://Personal/orbiter-api-key/credential')"
-  local check
-  check=$(gum style --foreground="2" "✓ ")
-  gum join "$check" "Orbiter key set to personal!"
-}
-
-# Set orbiter key to orbiter account
-orbiter-account() {
-  gum spin --spinner dot --spinner.foreground="2" --title "Updating..." -- orbiter auth --key "$(op read 'op://Personal/orbiter-account-api-key/credential')"
-  local check
-  check=$(gum style --foreground="2" "✓ ")
-  gum join "$check" "Orbiter key set to Orbiter account!"
 }
 
 # UTC timestamp for blog frontmatter

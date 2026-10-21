@@ -6,7 +6,7 @@
 (use-package base16-theme)
 (use-package nord-theme)
 
-(load-theme 'nord t)
+(load-theme 'base16-nord t)
 
 ;;; Mode line
 ;; Evil's own indicator is dropped; the state is drawn by hand as a colored

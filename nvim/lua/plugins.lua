@@ -4,7 +4,7 @@ vim.pack.add({
   'https://github.com/echasnovski/mini.nvim',
   'https://github.com/shaunsingh/nord.nvim'
 })
-vim.cmd.colorscheme('darkmatter')
+vim.cmd.colorscheme('nord')
 
 -- Mini.nvim — startup modules
 local win_config = function()

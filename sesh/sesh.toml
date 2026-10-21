@@ -1,0 +1,26 @@
+[tui]
+show_icons = true
+show_windows = true
+prompt = "󰄾 "
+placeholder = "Choose a session"
+group_separator = true
+preview = true
+
+[icons]
+tmux = { icon = "" }
+config = { icon = "" }
+zoxide = { icon = "" }
+
+[[session]]
+name = "dotfiles"
+icon = ""
+path = "~/linux-dotfiles"
+alias = "df"
+alias_auto_connect = true
+
+[[session]]
+name = "website"
+path = "~/Developer/stevedylan.dev"
+icon = ""
+alias = "sd"
+alias_auto_connect = true
