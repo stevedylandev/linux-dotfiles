@@ -12,6 +12,13 @@ config = { icon = "" }
 zoxide = { icon = "" }
 
 [[session]]
+name = "home"
+icon = "󰋜"
+path = "~/"
+alias = "hm"
+alias_auto_connect = true
+
+[[session]]
 name = "dotfiles"
 icon = ""
 path = "~/linux-dotfiles"
