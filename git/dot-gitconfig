@@ -1,7 +1,7 @@
 [user]
   name = Steve
   email = contact@stevedylan.dev
-  signingkey = ~/.ssh/id_ed25519.pub
+	signingkey = /home/stevedylandev/.ssh/id_ed25519.pub
 
 [alias]
 	ac = "!f() { git add . && git commit -m \"$1\"; }; f"
@@ -81,7 +81,7 @@
   format = ssh
 
 [gpg "ssh"]
-  allowedSignersFile = ~/.ssh/allowed_signers
+	allowedSignersFile = /home/stevedylandev/.ssh/allowed_signers
 
 [log]
   abbrevCommit = true
