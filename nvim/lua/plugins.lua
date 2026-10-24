@@ -2,7 +2,8 @@
 vim.pack.add({
 	"https://github.com/stevedylandev/darkmatter-nvim",
   'https://github.com/echasnovski/mini.nvim',
-  'https://github.com/shaunsingh/nord.nvim'
+  'https://github.com/shaunsingh/nord.nvim',
+  'https://github.com/ledger/vim-ledger'
 })
 vim.cmd.colorscheme('nord')
 
