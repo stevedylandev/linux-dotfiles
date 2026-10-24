@@ -12,13 +12,6 @@ config = { icon = "" }
 zoxide = { icon = "" }
 
 [[session]]
-name = "home"
-icon = "󰋜"
-path = "~/"
-alias = "hm"
-alias_auto_connect = true
-
-[[session]]
 name = "dotfiles"
 icon = ""
 path = "~/linux-dotfiles"
@@ -26,10 +19,24 @@ alias = "df"
 alias_auto_connect = true
 
 [[session]]
+name = "home"
+icon = "󰋜"
+path = "~/"
+alias = "hm"
+alias_auto_connect = true
+
+[[session]]
 name = "website"
 path = "~/Developer/stevedylan.dev"
 icon = ""
 alias = "sd"
+alias_auto_connect = true
+
+[[session]]
+name = "andromeda"
+path = "~/andromeda"
+icon = ""
+alias = "ad"
 alias_auto_connect = true
 
 [[session]]
