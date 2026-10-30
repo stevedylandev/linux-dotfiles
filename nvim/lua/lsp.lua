@@ -6,7 +6,8 @@ vim.lsp.enable({
   "rust-analyzer",
   "solc",
   "html",
-  "json"
+  "json",
+  "zls"
 })
 
 vim.api.nvim_create_autocmd("LspAttach", {
