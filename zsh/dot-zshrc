@@ -246,3 +246,6 @@ if [ -d "$FNM_PATH" ]; then
   eval "$(fnm env --shell zsh)"
 fi
 export NO_AT_BRIDGE=1 # stops GTK apps relaunching it
+
+# opencode
+export PATH=/home/stevedylandev/.opencode/bin:$PATH
