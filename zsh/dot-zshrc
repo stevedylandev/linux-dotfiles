@@ -249,3 +249,10 @@ export NO_AT_BRIDGE=1 # stops GTK apps relaunching it
 
 # opencode
 export PATH=/home/stevedylandev/.opencode/bin:$PATH
+
+# ZVM
+export ZVM_INSTALL="$HOME/.zvm/self"
+if [ -d "$ZVM_INSTALL" ]; then
+  export PATH="$PATH:$HOME/.zvm/bin"
+  export PATH="$PATH:$ZVM_INSTALL"
+fi
