@@ -4,3 +4,4 @@
 */.DS_Store
 vim/dot-vim/plugged
 vim/dot-vim/.netrwhist
+vis/plugins/vis-lspc
