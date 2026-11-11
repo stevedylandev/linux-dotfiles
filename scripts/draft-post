@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+KEY=$(pass andromeda/posts)
+TITLE=$(gum input --prompt.foreground=2 --cursor.foreground=2 --placeholder="Title")
+FILE=$(gum file --file.foreground=7 --symlink.foreground=4 --cursor.foreground=2 --selected.foreground=2)
+STATUS=$(gum choose --header.foreground=3  --selected.foreground=2 --cursor.foreground=2 draft publish)
+
+CONTENT=$(cat "$FILE")
+
+JSON=$(jq -n \
+  --arg title "$TITLE" \
+  --arg content "$CONTENT" \
+  --arg status "$STATUS" \
+  '{title: $title, content: $content, status: $status}')
+
+if RESPONSE=$(gum spin --spinner.foreground=2 --title "Posting '$TITLE'..." -- \
+  curl -s --fail-with-body -X POST http://localhost:3535/api/posts \
+    -H "x-api-key: $KEY" \
+    -H "Content-Type: application/json" \
+    -d "$JSON" | jq -r ".short_id"); then
+  echo "✔ https://posts.stevedylan.dev/admin/posts/$RESPONSE/edit"
+else
+  gum style --foreground=1 "✖ Failed to post '$TITLE'"
+  exit 1
+fi
+
